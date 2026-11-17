@@ -1,0 +1,90 @@
+{
+ "grades": [
+  "Private Pilot",
+  "Instrument Rating",
+  "Commercial Pilot",
+  "Flight Instructor",
+  "Airline Transport Pilot"
+ ],
+ "scenarioPreferences": [
+  "Day VFR local training flight",
+  "Day VFR cross-country flight",
+  "Night VFR local training flight",
+  "Night VFR cross-country flight",
+  "Day IFR training flight",
+  "Day IFR cross-country flight",
+  "Night IFR training flight",
+  "Night IFR cross-country flight"
+ ],
+ "weather": [
+  "VFR, visibility >5sm, Ceilings >5,000ft",
+  "MVFR, visibility 3-5sm, Ceilings 1,500ft-3,000ft",
+  "IFR, visibility 2-3sm, Ceilings 500ft-1,000ft",
+  "LIFR, visibility <2sm, Ceilings <500ft"
+ ],
+ "pilotFactors": [
+  "Well rested, current, and in good physical condition",
+  "Fatigued from a late night (reduced alertness)",
+  "Distracted by personal concerns (e.g., recent family issue)",
+  "Experiencing mild allergies (slight discomfort)",
+  "Under stress from a recent financial concern"
+ ],
+ "aircraftFactors": [
+  "Properly maintained and fully equipped aircraft",
+  "Minor inoperative instrument (e.g., VOR receiver)",
+  "Recently serviced with updated avionics (slightly unfamiliar)",
+  "Equipped for VFR only (no IFR capability)"
+ ],
+ "environmentalFactors": [
+  "Mountainous terrain",
+  "Actual weather different than forecast",
+  "Strong surface winds",
+  "Thunderstorms in the vicinity",
+  "Icing conditions forecasted",
+  "Route over remote areas",
+  "Uncontrolled airport",
+  "Construction on the airport",
+  "Wildlife in the vicinity",
+  "Unfamiliar airspace along route of flight or at the destination",
+  "Flight over water"
+ ],
+ "externalPressures": [
+  "Passenger has a tight schedule and requests an early arrival",
+  "Client expects delivery of urgent medical supplies by a deadline",
+  "Family member awaiting your arrival for an important event",
+  "Pressure to complete the flight to meet a personal commitment",
+  "Desire to prove your skills to a mentor or instructor"
+ ],
+ "difficultyAdjustment": [
+  "Private Pilot: Scenarios and questions are straightforward, testing baseline aeronautical knowledge, fundamental airmanship, and risk management under Part 61 and Part 91 for VFR operations.",
+  "Instrument Rating: Scenarios and questions test IFR operations with moderate challenges, requiring intermediate aeronautical knowledge, precise airmanship, and risk management under Part 61 and Part 91.",
+  "Commercial Pilot: Scenarios and questions involve nuanced for-hire operations, testing greater depth in aeronautical knowledge, enhanced airmanship, and risk management under Part 61, Part 91, and Part 119/135 with increased analytical complexity.",
+  "Airline Transport Pilot (ATP): Scenarios and questions test complex operations, requiring comprehensive aeronautical knowledge, advanced airmanship, crew coordination, and risk management under Part 61, Part 91, and Part 121/135 with complex conditions."
+ ],
+ "temperature": [
+  "0 (Deterministic)",
+  "0.3 (Slightly Creative)",
+  "0.7 (Balanced Creativity)",
+  "1.0 (Highly Creative)"
+ ],
+ "tone": [
+  "Professional",
+  "Conversational"
+ ],
+ "detailLevel": [
+  "Concise",
+  "Detailed"
+ ],
+ "languageComplexity": [
+  "Simple",
+  "Technical"
+ ],
+ "narrativeStyle": [
+  "Narrative",
+  "Directive"
+ ],
+ "riskEmphasis": [
+  "Low Risk",
+  "High Risk"
+ ]
+}

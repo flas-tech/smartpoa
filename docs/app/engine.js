@@ -4,9 +4,9 @@
   'use strict';
 
   const CLASS_LABEL = { ASEL: 'Airplane Single-Engine Land', AMEL: 'Airplane Multiengine Land', ASES: 'Airplane Single-Engine Sea', AMES: 'Airplane Multiengine Sea', RH: 'Rotorcraft Helicopter', RG: 'Rotorcraft Gyroplane' };
-  const CERT_LABEL = { private: 'Private Pilot', commercial: 'Commercial Pilot', instrument: 'Instrument Rating', atp: 'Airline Transport Pilot' };
-  const PURPOSE_LABEL = { practical_test: 'Practical test', added_rating: 'Added category / class rating', type_rating: 'Aircraft type rating', retest: 'Retest (after disapproval)', mock_checkride: 'Mock checkride', training: 'Training / stage check' };
-  const HELD_OPTIONS = ['ASEL', 'ASES', 'AMEL', 'AMES', 'RH', 'RG', 'Glider', 'Balloon', 'Airship', 'PL'];
+  const CERT_LABEL = { private: 'Private Pilot', commercial: 'Commercial Pilot', instrument: 'Instrument Rating', atp: 'Airline Transport Pilot', cfi: 'Flight Instructor' };
+  const PURPOSE_LABEL = { practical_test: 'Practical test', added_rating: 'Added category / class rating', type_rating: 'Aircraft type rating', retest: 'Retest (after disapproval)', mock_checkride: 'Mock checkride', training: 'Training / stage check', continuation: 'Continuation (after discontinuance)', reinstatement: 'Flight instructor reinstatement' };
+  const HELD_OPTIONS = ['ASEL', 'ASES', 'AMEL', 'AMES', 'RH', 'RG', 'Glider', 'Balloon', 'Airship', 'PL', 'IA', 'IH', 'IP'];
 
   // ---------- standard resolution ----------
   function categoryOfClass(cls) { return cls === 'RH' ? 'rotorcraft-helicopter' : cls === 'RG' ? 'rotorcraft-gyroplane' : 'airplane'; }
@@ -16,6 +16,8 @@
     let cat = categoryOfClass(profile.cls);
     if (cert === 'instrument' && profile.cls === 'RG') return { error: 'There is no instrument rating for gyroplanes.' };
     if (cert === 'atp' && profile.cls === 'RG') return { error: 'There is no ATP certificate for gyroplanes.' };
+    if (cert === 'cfi' && cat !== 'airplane') return { error: 'Only the Flight Instructor Airplane ACS (FAA-S-ACS-25) is on file. Use the rotorcraft flight instructor PTS directly for now.' };
+    if (profile.purpose === 'reinstatement' && cert !== 'cfi') return { error: 'Reinstatement applies to the flight instructor certificate only.' };
     const doc = docs.find((d) => d.cert === cert && d.category === cat);
     if (!doc) return { error: 'No ACS or PTS on file for this certificate and category.' };
     return { doc };
@@ -27,8 +29,28 @@
     return task.elements.map((e, i) => e.code || (doc.num.replace(/^FAA-S-/, '') + '.' + area.roman + '.' + task.letter + '.' + e.num + (e.sub || '')));
   }
 
+  // CFI test matrix: per Area a list of groups; a group with several letters means choose one.
+  function cfiMatrix(doc, profile) {
+    const m = doc.cfi_matrix; if (!m) return null;
+    const cls = profile.cls;
+    const kind = profile.purpose === 'reinstatement' ? 'reinstatement' : profile.purpose === 'added_rating' ? 'add' : 'initial';
+    const c = m.classes[cls] || {};
+    const byHeld = kind === 'add' && profile.held && c.add_by_held && c.add_by_held[profile.held];
+    const t = byHeld || c[kind];
+    if (!t) return null;
+    const sea = profile.cls === 'ASES' || profile.cls === 'AMES';
+    return { kind, table: t, sea };
+  }
+  function pickGroup(group, area, usage, rand, pinned) {
+    if (group.length === 1) return group[0];
+    const p = group.find((l) => pinned && pinned.has(area.roman + '.' + l)); if (p) return p;
+    const score = (l) => { const t = area.tasks.find((x) => x.letter === l); return t ? t.elements.reduce((a, e) => a + (usage[e.code] || 0), 0) / Math.max(1, t.elements.length) : 99; };
+    return group.map((l) => ({ l, u: score(l), r: rand() })).sort((a, b) => a.u - b.u || a.r - b.r)[0].l;
+  }
+
   // Which tasks are required, with a reason for each.
-  function requiredTasks(doc, profile) {
+  function requiredTasks(doc, profile, opts) {
+    opts = opts || {};
     const out = [];
     const cls = profile.cls;
     const isAirplane = doc.category === 'airplane';
@@ -36,21 +58,36 @@
     if (profile.purpose === 'added_rating' && profile.held && doc.additional_rating && doc.additional_rating[cls]) {
       addl = doc.additional_rating[cls][profile.held] || null;
     }
+    const mx = doc.cert === 'cfi' ? cfiMatrix(doc, profile) : null;
+    const usage = opts.usage || {}; const rand = opts.rand || Math.random; const pinned = (opts.pinned || profile.cfiPicks) ? new Set(opts.pinned || profile.cfiPicks) : null;
+    const KIND = { initial: 'initial certificate', add: 'added class rating', reinstatement: 'reinstatement' };
     for (const area of doc.areas) {
+      let picks = null;
+      if (mx) {
+        const fits = (l) => { const tk = area.tasks.find((x) => x.letter === l); return tk && (!isAirplane || !tk.classes || tk.classes.includes(cls)); };
+        const groups = (mx.table[area.roman] || []).map((g) => g.filter(fits)).filter((g) => g.length);
+        picks = {};
+        groups.forEach((g) => { const gg = mx.sea && area.roman === 'XIV' ? g.map((l) => (l === 'A' ? 'B' : l)) : g; const l = pickGroup(gg, area, usage, rand, pinned); picks[l] = gg.length > 1 ? 'Chosen from ' + gg.map((x) => area.roman + '.' + x).join(' / ') + ' (choose one; least recently tested)' : 'Required'; });
+      }
       for (const task of area.tasks) {
         let req = true; let reason = 'Required for the certificate/rating sought';
+        if (picks) {
+          if (picks[task.letter]) reason = picks[task.letter] + ' for a flight instructor ' + KIND[mx.kind] + ' (' + profile.cls + ') per the Area of Operation note in ' + doc.num;
+          else { req = false; reason = (Object.keys(picks).length ? 'Not selected' : 'Area not required') + ' for a flight instructor ' + KIND[mx.kind] + ' (' + profile.cls + ') per the Area of Operation note in ' + doc.num; }
+        }
         if (isAirplane && task.classes && !task.classes.includes(cls)) { req = false; reason = 'Applies only to ' + task.classes.join(', '); }
         if (req && doc.id === 'acs11a' && task.flags.includes('ATP') && profile.purpose === 'type_rating' && !profile.atpCert) { req = false; reason = 'ATP certificate only — not required for an aircraft type rating alone'; }
-        if (req && addl) {
+        if (req && addl && !picks) {
           const c = addl[area.roman];
           if (!c || c.none) { req = false; reason = 'Not required for an added rating when the applicant holds ' + profile.held + ' (Additional Rating Task Table)'; }
           else if (c.tasks && !c.tasks.includes(task.letter)) { req = false; reason = 'Not listed for this Area in the Additional Rating Task Table (held: ' + profile.held + ')'; }
           else if (c.star) reason = 'Additional Rating Task Table: follow the selection requirements in the body of the standard';
           else reason = 'Required by the Additional Rating Task Table (held: ' + profile.held + ')';
         }
-        if (req && profile.purpose === 'retest' && profile.retestTasks && profile.retestTasks.length) {
-          if (!profile.retestTasks.includes(taskKey(area, task))) { req = false; reason = 'Passed on the previous attempt (examiner may re-evaluate any task)'; }
-          else reason = 'Failed or not completed on the previous attempt';
+        if (req && (profile.purpose === 'retest' || profile.purpose === 'continuation') && profile.retestTasks && profile.retestTasks.length) {
+          const cont = profile.purpose === 'continuation';
+          if (!profile.retestTasks.includes(taskKey(area, task))) { req = false; reason = cont ? 'Completed satisfactorily before the discontinuance (credit per the Letter of Discontinuance)' : 'Passed on the previous attempt (examiner may re-evaluate any task)'; }
+          else reason = cont ? 'Not yet completed when the test was discontinued' : 'Failed or not completed on the previous attempt';
         }
         out.push({ key: taskKey(area, task), area, task, required: req, reason });
       }
@@ -84,6 +121,17 @@
       const ranked = pool.map((e) => ({ e, u: usage[e.ref] || 0, r: rand() })).sort((a, b) => a.u - b.u || a.r - b.r).slice(0, want);
       ranked.forEach(({ e }) => { sel.add(e.ref); why[e.ref] = t === 'K' ? 'Knowledge sample (least recently tested)' : 'Risk management sample (least recently tested)'; });
     }
+    // examiner sampling rules (e.g. "If K2: 3 sub-elements"): expand a chosen parent to n of its sub-elements
+    (task.ksel || []).forEach((rule) => {
+      const parents = new Set(els.filter((e) => e.sub && sel.has(e.ref)).map((e) => e.type + e.num));
+      parents.forEach((pk) => {
+        if (rule.parent !== '*' && rule.parent !== pk) return;
+        const subs = els.filter((e) => e.sub && e.type + e.num === pk);
+        const have = subs.filter((e) => sel.has(e.ref)).length;
+        const add = subs.filter((e) => !sel.has(e.ref)).map((e) => ({ e, u: usage[e.ref] || 0, r: rand() })).sort((a, b) => a.u - b.u || a.r - b.r).slice(0, Math.max(0, Math.min(subs.length, rule.n) - have));
+        add.forEach(({ e }) => { sel.add(e.ref); why[e.ref] = 'Examiner sampling rule: ' + rule.n + ' sub-elements of ' + pk; });
+      });
+    });
     return { selected: Array.from(sel), why };
   }
 
@@ -105,6 +153,11 @@
       { name: 'Two-crew charter-style trip', text: 'You are captain for a two-crew trip from {dep} to {dest} with passengers. The first officer is new to the type. Brief crew duties, compute takeoff performance for the conditions, and plan for an engine failure during the departure.' },
       { name: 'Type rating line-oriented scenario', text: 'Plan a line-oriented flight from {dep} to {dest} in the {aircraft}. The aircraft is dispatched with one MEL item. Review the MEL procedures, compute performance and weight and balance, and brief the departure, arrival and expected approach.' },
     ],
+    cfi: [
+      { name: 'Teaching a cross-country lesson', text: 'You are preparing a student pilot for the first solo cross-country to {dest}. Teach the planning lesson as you would to the student, including weather, fuel, airspace along the route and the endorsements the student needs, then fly the trip demonstrating and explaining the maneuvers and the common errors a student would make.' },
+      { name: 'Commercial maneuvers student', text: 'A private pilot working toward a commercial certificate has struggled with chandelles and steep spirals. Plan a lesson from {dep} that diagnoses the errors, teaches the maneuvers using the fundamentals of instructing, and manages the risks of training flight near the practice area.' },
+      { name: 'Flight review for a returning pilot', text: 'A pilot who has not flown in three years asks you for a flight review in the {aircraft}. Plan the ground and flight content, the regulations that apply, and how you would decide whether to endorse the logbook.' },
+    ],
     helicopter: [
       { name: 'Site survey with off-airport landing', text: 'A construction company has asked you to fly a project manager to survey a site near {dest} and land in a confined area at the site. Plan the flight, evaluate the landing zone, and compute performance for the expected density altitude.' },
       { name: 'Utility patrol flight', text: 'You will fly a low-level patrol along a pipeline route from {dep}. Plan the flight, wire and obstacle awareness, and the decisions you would make for weather or a mechanical problem far from an airport.' },
@@ -117,6 +170,9 @@
     if (profile.cls === 'RH') return MISSIONS.helicopter.concat(profile.cert === 'instrument' ? MISSIONS.instrument : []);
     if (profile.cls === 'RG') return MISSIONS.gyroplane;
     return MISSIONS[profile.cert] || MISSIONS.private;
+  }
+  function scenarioProfile(settings, cert) {
+    const p = settings && settings.scenario_profiles; return (p && (p[cert] || p.default)) || null;
   }
 
   // Trigger events. `match` runs against task titles so one library works across every ACS/PTS.
@@ -221,7 +277,11 @@
       push('class', 'acs_class', doc.num + ', Introduction', stdUrl, wrong.length ? 'review' : 'met',
         'Class used for the test: ' + profile.cls + '. ' + (wrong.length ? wrong.length + ' included task(s) belong to another class: ' + wrong.map((t) => t.key).join(', ') + '.' : 'Class-specific tasks match the class airplane.'));
     }
-    if (profile.purpose === 'added_rating') {
+    if (doc.cfi_matrix && profile.cert === 'cfi') {
+      const m = cfiMatrix(doc, profile);
+      push('cfi_areas', 'acs_poa', doc.num + ', Areas of Operation notes', stdUrl, m ? 'met' : 'review', m ? 'Tasks follow the Area of Operation notes for a flight instructor ' + m.kind + ' (' + profile.cls + '), with one task chosen where the note allows a choice.' : 'No flight instructor task selection on file for this class; all tasks treated as required. Confirm with the standard.');
+    }
+    if (profile.purpose === 'added_rating' && !(doc.cert === 'cfi')) {
       const tbl = doc.additional_rating && doc.additional_rating[profile.cls] && doc.additional_rating[profile.cls][profile.held];
       push('addl', null, doc.num + ', Additional Rating Task Table', stdUrl, tbl ? 'met' : 'review',
         tbl ? 'Required tasks were taken from the Additional Rating Task Table for adding ' + profile.cls + ' with ' + profile.held + ' held.' : 'No Additional Rating Task Table entry for this combination; all tasks are treated as required. Confirm with the standard.');
@@ -289,12 +349,71 @@
     return { rows, counts, coverage: cov, ready: !rows.some((r) => r.status === 'gap') };
   }
 
+  // Briefing scripts carried over from the JPJ examiner plan of action (legacy system). Examiners edit per plan.
   const DEFAULT_BRIEFINGS = {
-    pretest: 'Verify the applicant’s identity, IACRA application, endorsements, knowledge test report and logbook. Explain that the test follows {std} and that tasks may be evaluated in any order. Explain the oral and flight portions, the scenario, and how the applicant will be told if a task is unsatisfactory. Explain that the applicant or examiner may discontinue the test at any time, and the credit and Letter of Discontinuance that follows. Explain the fee and what happens with a Notice of Disapproval. Answer the applicant’s questions.',
-    preflight: 'Confirm who is pilot in command and the use of positive exchange of flight controls ("You have the flight controls" / "I have the flight controls" / "You have the flight controls"). Explain that simulated emergencies will be announced clearly and that the applicant should treat the flight as a real one unless told otherwise. Review collision avoidance, see-and-avoid duties, sterile cockpit below 1,000 ft AGL, how to stop a maneuver ("knock it off"), and the plan for an actual emergency. Brief the applicant to state intentions out loud and use checklists.',
-    postflight: 'Debrief each Area of Operation using the ACS codes. Tell the applicant the result. If satisfactory: complete IACRA and issue the temporary certificate. If unsatisfactory: explain each failed task with ACS codes, issue the Notice of Disapproval, explain retest requirements and the tasks that remain, and the 60-day credit for tasks passed. Invite questions and feedback.',
+    pretest: [
+      'WELCOME',
+      '- Make introductions and put the applicant at ease; discuss aviation goals and career plans',
+      '- Privacy, exits, restrooms, water; breaks are available any time',
+      '- Phones off; no recording',
+      'QUALIFY THE APPLICANT',
+      '- Confirm the test: {std}; training under Part 61 or Part 141',
+      '- Status: Initial [ ]  Retest [ ]  Continuation [ ]',
+      '- IACRA (or FAA Form 8710-1) signed by applicant and recommending instructor',
+      '- Name or nationality change? [ ] Yes [ ] No    Drug conviction (Box O)? [ ] Yes [ ] No (if yes, coordinate with the FSDO before testing)',
+      '- Foreign license verification? [ ] Yes [ ] N/A',
+      '- Photo ID type __________ expiration __________; U.S. pilot certificate; medical; knowledge test report',
+      '- Aeronautical experience and endorsements (see the eligibility checklist)',
+      '- English proficiency adequate per AC 60-28? [ ] Yes [ ] No (refer to FSDO)',
+      'QUALIFY THE AIRPLANE',
+      '- Maintenance records: inspections (AVIATE) [ ]  ADs [ ]',
+      '- Documents: AROW [ ] Airworthiness [ ] Registration [ ] POH/AFM [ ] Weight and balance [ ]',
+      'TEST BRIEF',
+      '- Conducted per the current ACS and FAA Order 8900.2 / 8000.95; I will use this plan of action and take notes for the debrief',
+      '- The standard is the ACS, not perfection; oral questioning continues throughout; approved resources may be used',
+      '- Outcomes: Temporary Airman Certificate (120 days), Letter of Discontinuance (60-day credit), Notice of Disapproval (60-day credit for tasks passed)',
+      '- Unsatisfactory performance includes: corrective action by the examiner needed for safety of flight; ineffective visual scanning; failure to take prompt corrective action; consistently exceeding tolerances; outcome of a task in doubt or poor judgment; failure to exercise risk management; not meeting the standard',
+      '- Examiner fee __________   Retest policy/fee __________   Continuation policy/fee __________   Fee collected [ ]',
+      '- Privacy statement and Pilot\u2019s Bill of Rights notification given [ ]',
+      '- Questions? Applicant signs IACRA 8710.   "The test has begun" time: __________',
+    ].join('\n'),
+    preflight: [
+      'Time started: __________',
+      'PIC BRIEF',
+      '- The applicant remains pilot in command (14 CFR 61.47) and exercises PIC authority throughout',
+      '- PIC responsibilities: preflight with checklist and documents; weight and balance and performance; first-flight-of-day preflight; fuel with reserves; 91.213 and 91.205 compliance; aircraft systems and equipment knowledge; passenger briefing',
+      '- Unique aircraft traits? __________',
+      '- Collision avoidance: clearing turns and scanning; checklist use for each phase',
+      '- The examiner acts as a non-flying passenger. Positive exchange of flight controls: "You have the flight controls" / "I have the flight controls" / "You have the flight controls"',
+      'EVALUATOR EXPECTATIONS',
+      '- Safety first: immediate correction of any unsafe condition',
+      '- Clear communication: verbalize actions and talk through procedures; checklist use is mandatory',
+      'FLIGHT PORTION BRIEF',
+      '- The test continues under the ACS and the plan of action, now flight focused; review the flight profile - no tricks',
+      '- Simulated emergencies will be announced: "SIMULATED ________"',
+      '- Actual emergency: you are PIC, use all resources; the test stops during an actual emergency',
+      '- Other potential issues: weather, mechanical, medical',
+      '- Every task must be completed and meet the standard: objective met, procedure completed, standards met, safety considered',
+      '- If a task is unsatisfactory the applicant may continue or discontinue',
+      '- Questions? __________   Time ended: __________',
+    ].join('\n'),
+    postflight: [
+      'Time started: __________',
+      'DEBRIEF (PRIVATE)',
+      '- Outcome: [ ] Satisfactory  [ ] Discontinuance  [ ] Disapproval. Use the plan of action notes and ACS codes for the performance review',
+      'SATISFACTORY',
+      '- Temporary certificate (120 days): complete IACRA, print and sign the temporary certificate; advise to check with the FAA if the permanent certificate is delayed; sign the logbook; hole-punch the old certificate',
+      'DISCONTINUANCE',
+      '- Issue the Letter of Discontinuance (60 days). Remaining items: __________. Advise on continuation. Sign the logbook',
+      'DISAPPROVAL',
+      '- Explain the deficiencies with ACS codes: __________; highlight strengths: __________',
+      '- Issue the Notice of Disapproval (60 days); credit for satisfactory tasks: __________; explain retest requirements (61.49); sign the logbook (optional)',
+      'FINAL ITEMS',
+      '- Review with the recommending instructor: [ ] Yes [ ] No',
+      '- Time ended: __________',
+    ].join('\n'),
   };
 
   root.SPE = { CLASS_LABEL, CERT_LABEL, PURPOSE_LABEL, HELD_OPTIONS, resolveStandard, requiredTasks, selectElements, elementCodes, taskKey,
-    missionsFor, TRIGGERS, triggersFor, triggerCovers, scenarioCoverage, questionFor, complianceChecks, DEFAULT_BRIEFINGS, categoryOfClass, similarity };
+    missionsFor, scenarioProfile, cfiMatrix, TRIGGERS, triggersFor, triggerCovers, scenarioCoverage, questionFor, complianceChecks, DEFAULT_BRIEFINGS, categoryOfClass, similarity };
 })(typeof window !== 'undefined' ? window : globalThis);

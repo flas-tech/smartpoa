@@ -1,0 +1,335 @@
+{
+ "source": "JPJ examiner briefing requirements (legacy system). Examiner checklist, not a substitute for 14 CFR part 61.",
+ "items": [
+  {
+   "grade": "atp",
+   "grade_label": "Airline Transport Pilot",
+   "test_type": "Additional Rating",
+   "endorsements": [],
+   "experience": []
+  },
+  {
+   "grade": "atp",
+   "grade_label": "Airline Transport Pilot",
+   "test_type": "Original Certificate",
+   "endorsements": [],
+   "experience": []
+  },
+  {
+   "grade": "atp",
+   "grade_label": "Airline Transport Pilot",
+   "test_type": "Retest For Additional Rating",
+   "endorsements": [],
+   "experience": []
+  },
+  {
+   "grade": "atp",
+   "grade_label": "Airline Transport Pilot",
+   "test_type": "Retest for Original Certificate",
+   "endorsements": [],
+   "experience": []
+  },
+  {
+   "grade": "cfi",
+   "grade_label": "Flight Instructor",
+   "test_type": "Additional Rating",
+   "endorsements": [
+    "Flight Review and 90 Day Currency",
+    "Complex, High-Performance, High Altitude, Tailwheel as required for check ride",
+    "Flight Instructor Knowledge Test: 61.183(f), 61.185(a)(2)(3), appropriate to the rating sought",
+    "Flight Instructor Practical Test: 61.183(g), 61.187(a)",
+    "Log of ground and flight training per 61.187(b)",
+    "Prerequisites for Practical Test (2 calendar months) & Review of AKTR - 61.39(a)(1)(2) and (3)"
+   ],
+   "experience": [
+    "18 Years of age",
+    "Hold a Commercial or ATP",
+    "Category and Class Rating appropriate to certificate sought",
+    "Instrument rating appropriate for certificate sought",
+    "15 hours PIC in category and class aircraft appropriate to rating sought"
+   ]
+  },
+  {
+   "grade": "cfi",
+   "grade_label": "Flight Instructor",
+   "test_type": "Original Certificate",
+   "endorsements": [
+    "Flight Review and 90 Day Currency",
+    "Complex, High-Performance, High Altitude, Tailwheel as required for check ride",
+    "Fundamentals of Instructing Training Received: 61.183(d) and 61.185(a)(1)",
+    "Fundamentals of Instruction Knowledge Test: 61.183(e), or",
+    "Holds a Flight or Ground Instructor certificate",
+    "Holds a teacher certificate issued by government for 7th grade or higher",
+    "Employed as a teacher at accredited college or university",
+    "Spin Training: 61.183(i)(1)",
+    "Flight Instructor Knowledge Test: 61.183(f), 61.185(a)(2)(3), appropriate to the rating sought",
+    "Recommending instructor (initial CFI): held a flight instructor certificate 24 calendar months and given 200 hours of flight training, or meets 61.195(h)(2)(ii) or (iii)",
+    "Flight Instructor Practical Test: 61.183(g), 61.187(a)",
+    "Log of ground and flight training per 61.187(b)",
+    "Prerequisites for Practical Test (2 calendar months) & Review of AKTR - 61.39(a)(1)(2) and (3)"
+   ],
+   "experience": [
+    "18 Years of age",
+    "Hold a Commercial or ATP",
+    "Category and Class Rating appropriate to certificate sought",
+    "Instrument rating appropriate for certificate sought",
+    "15 hours PIC in category and class aircraft appropriate to rating sought"
+   ]
+  },
+  {
+   "grade": "cfi",
+   "grade_label": "Flight Instructor",
+   "test_type": "Reinstatement of CFI",
+   "endorsements": [
+    "Flight Review and 90 Day Currency",
+    "Complex, High-Performance, High Altitude, Tailwheel as required for check ride",
+    "Prerequisites for Practical Test (2 calendar months) - 61.39(a)(6)"
+   ],
+   "experience": [
+    "Hold an existing flight instructor certificate"
+   ]
+  },
+  {
+   "grade": "cfi",
+   "grade_label": "Flight Instructor",
+   "test_type": "Retest For Additional Rating",
+   "endorsements": [
+    "Flight Review and 90 Day Currency",
+    "Complex, High-Performance, High Altitude, Tailwheel as required for check ride",
+    "Retesting after Failure of Practical Test - 61.49"
+   ],
+   "experience": [
+    "18 Years of age",
+    "Hold a Commercial or ATP",
+    "Category and Class Rating appropriate to certificate sought",
+    "Instrument rating appropriate for certificate sought",
+    "15 hours PIC in category and class aircraft appropriate to rating sought"
+   ]
+  },
+  {
+   "grade": "cfi",
+   "grade_label": "Flight Instructor",
+   "test_type": "Retest for Original Certificate",
+   "endorsements": [
+    "Flight Review and 90 Day Currency",
+    "Complex, High-Performance, High Altitude, Tailwheel as required for check ride",
+    "Retesting after Failure of Practical Test - 61.49"
+   ],
+   "experience": [
+    "18 Years of age",
+    "Hold a Commercial or ATP",
+    "Category and Class Rating appropriate to certificate sought",
+    "Instrument rating appropriate for certificate sought",
+    "15 hours PIC in category and class aircraft appropriate to rating sought"
+   ]
+  },
+  {
+   "grade": "commercial",
+   "grade_label": "Commercial Pilot",
+   "test_type": "Additional Rating",
+   "endorsements": [
+    "Flight Review and 90 Day Currency",
+    "Complex, High-Performance, High Altitude, Tailwheel as required for check ride",
+    "Additional Category or Class rating - 61.63(b) or (c)",
+    "Prerequisites for Practical Test (2 calendar months) & Review of AKTR - 61.39(a)(1)(2) and (3)"
+   ],
+   "experience": []
+  },
+  {
+   "grade": "commercial",
+   "grade_label": "Commercial Pilot",
+   "test_type": "Continued from Previously Discontinued Test",
+   "endorsements": [
+    "Flight Review and 90 Day Currency",
+    "Complex, High-Performance, High Altitude, Tailwheel as required for check ride",
+    "Commercial Pilot Aeronautical Test - 61.35(a)(1), 61.123(c), and 61.125",
+    "Commercial Pilot Practical Test: 61.123(e), 61.127 and 61.129",
+    "Log of ground and flight training per 61.127(b) in Areas of Operation noted in 61.129",
+    "Prerequisites for Practical Test (2 calendar months) & Review of AKTR - 61.39(a)(1)(2) and (3)",
+    "Retesting after Failure of Practical Test - 61.49, if required"
+   ],
+   "experience": [
+    "250 hours flight time, 100 hours powered aircraft and 50 hours in airplanes",
+    "100 hours PIC, 50 hrs. in airplanes, 50 hrs. XC (10 in airplanes)",
+    "20 hours of flight training in Areas of Operation 61.127(b) to include:",
+    "- 10 hours instrument training (5 in a single-engine airplane for ASEL; 5 in a multiengine airplane for AMEL)",
+    "- 10 hours of complex, turbine or TAA",
+    "- 2-hour 100 nm day cross country flight",
+    "- 2-hour 100 nm night cross country flight",
+    "- 3 hours with an authorized instructor in preparation for the practical test within the preceding 2 calendar months (61.129)",
+    "10 hours of solo flight OR performing duties of PIC (w/ authorized instructor onboard) to include:",
+    "- One cross-country flight of 300nm total distance, 250nm leg, landings at 3 points",
+    "- 5 hours at night/VFR with 10 landings, traffic pattern,  airport w/ operating control tower"
+   ]
+  },
+  {
+   "grade": "commercial",
+   "grade_label": "Commercial Pilot",
+   "test_type": "Original Certificate",
+   "endorsements": [
+    "Flight Review and 90 Day Currency",
+    "Complex, High-Performance, High Altitude, Tailwheel as required for check ride",
+    "Commercial Pilot Aeronautical Test - 61.35(a)(1), 61.123(c), and 61.125",
+    "Commercial Pilot Practical Test: 61.123(e), 61.127 and 61.129",
+    "Log of ground and flight training per 61.127(b) in Areas of Operation noted in 61.129",
+    "Prerequisites for Practical Test (2 calendar months) & Review of AKTR - 61.39(a)(1)(2) and (3)"
+   ],
+   "experience": [
+    "250 hours flight time, 100 hours powered aircraft and 50 hours in airplanes",
+    "100 hours PIC, 50 hrs. in airplanes, 50 hrs. XC (10 in airplanes)",
+    "20 hours of flight training in Areas of Operation 61.127(b) to include:",
+    "- 10 hours instrument training (5 in a single-engine airplane for ASEL; 5 in a multiengine airplane for AMEL)",
+    "- 10 hours of complex, turbine or TAA",
+    "- 2-hour 100 nm day cross country flight",
+    "- 2-hour 100 nm night cross country flight",
+    "- 3 hours with an authorized instructor in preparation for the practical test within the preceding 2 calendar months (61.129)",
+    "10 hours of solo flight OR performing duties of PIC (w/ authorized instructor onboard) to include:",
+    "- One cross-country flight of 300nm total distance, 250nm leg, landings at 3 points",
+    "- 5 hours at night/VFR with 10 landings, traffic pattern,  airport w/ operating control tower"
+   ]
+  },
+  {
+   "grade": "commercial",
+   "grade_label": "Commercial Pilot",
+   "test_type": "Retest For Additional Rating",
+   "endorsements": [
+    "Flight Review and 90 Day Currency",
+    "Complex, High-Performance, High Altitude, Tailwheel as required for check ride",
+    "Retesting after Failure of Practical Test - 61.49"
+   ],
+   "experience": []
+  },
+  {
+   "grade": "commercial",
+   "grade_label": "Commercial Pilot",
+   "test_type": "Retest for Original Certificate",
+   "endorsements": [
+    "Flight Review and 90 Day Currency",
+    "Complex, High-Performance, High Altitude, Tailwheel as required for check ride",
+    "Retesting after Failure of Practical Test - 61.49"
+   ],
+   "experience": [
+    "250 hours flight time, 100 hours powered aircraft and 50 hours in airplanes",
+    "100 hours PIC, 50 hrs. in airplanes, 50 hrs. XC (10 in airplanes)",
+    "20 hours of flight training in Areas of Operation 61.127(b) to include:",
+    "- 10 hours instrument training (5 in a single-engine airplane for ASEL; 5 in a multiengine airplane for AMEL)",
+    "- 10 hours of complex, turbine or TAA",
+    "- 2-hour 100 nm day cross country flight",
+    "- 2-hour 100 nm night cross country flight",
+    "- 3 hours with an authorized instructor in preparation for the practical test within the preceding 2 calendar months (61.129)",
+    "10 hours of solo flight OR performing duties of PIC (w/ authorized instructor onboard) to include:",
+    "- One cross-country flight of 300nm total distance, 250nm leg, landings at 3 points",
+    "- 5 hours at night/VFR with 10 landings, traffic pattern,  airport w/ operating control tower"
+   ]
+  },
+  {
+   "grade": "instrument",
+   "grade_label": "Instrument Rating",
+   "test_type": "Instrument Rating",
+   "endorsements": [
+    "Flight Review and 90 Day Currency",
+    "Complex, High-Performance, High Altitude, Tailwheel as required for check ride",
+    "Instrument Rating Aeronautical Test - 61.35(a)(1), 61.65(a) and (b)",
+    "Instrument Rating Practical Test: 61.65(a)(6)",
+    "Log of ground and flight training per 61.65(a)(3) and (5) in Areas of Operation noted in 61.65(b)(c)",
+    "Prerequisites for Practical Test (2 calendar months) & Review of AKTR - 61.39(a)(1)(2) and (3)"
+   ],
+   "experience": [
+    "50 hours PIC cross-country (10 in airplanes)",
+    "40 hours actual or simulated instrument time in the areas listed in 61.65(c) - 61.65(d)(2)",
+    "15 hours of training by authorized instructor to include:",
+    "- IFR cross country flight procedures, 250NM XC, 3 different types of IAP",
+    "- 3 hours of check ride prep within 2 calendar months"
+   ]
+  },
+  {
+   "grade": "instrument",
+   "grade_label": "Instrument Rating",
+   "test_type": "Retest for Instrument Rating",
+   "endorsements": [
+    "Flight Review and 90 Day Currency",
+    "Complex, High-Performance, High Altitude, Tailwheel as required for check ride",
+    "Retesting after Failure of Practical Test - 61.49"
+   ],
+   "experience": []
+  },
+  {
+   "grade": "private",
+   "grade_label": "Private Pilot",
+   "test_type": "Additional Rating",
+   "endorsements": [
+    "Flight Review and 90 Day Currency",
+    "Complex, High-Performance, High Altitude, Tailwheel as required for check ride",
+    "Additional Category or Class rating - 61.63(b) or (c)",
+    "Prerequisites for Practical Test (2 calendar months) & Review of AKTR - 61.39(a)(1)(2) and (3)"
+   ],
+   "experience": []
+  },
+  {
+   "grade": "private",
+   "grade_label": "Private Pilot",
+   "test_type": "Original Certificate",
+   "endorsements": [
+    "Student Endorsements",
+    "- Pre-Solo Aeronautical Knowledge - 61.87(b)",
+    "- Pre-Solo Flight Training -61.87(c)",
+    "- Solo Flight (first 90-day period) - 61.87(n)",
+    "- Solo Flight (additional 90-day period) - 61.87(p)",
+    "- Initial Solo Cross-Country Flight - 61.93(c)(1) and (2)",
+    "- Solo Cross-Country Flight - 61.93(c)(2)(ii) - each cross country",
+    "- Solo Takeoff & Landings (25nm) - 61.93(b)(1) (if applicable)",
+    "> Repeated Solo Cross-Country Flights (<50nm) - 61.93(b)(2) (if applicable)",
+    "Complex, High-Performance, High Altitude, Tailwheel as required for check ride",
+    "Private Pilot Aeronautical Test - 61.35(a)(1), 61.103(d), and 61.105",
+    "Private Pilot Practical Test: 61.103(f), 61.107 and 61.109",
+    "Log of ground and flight training per 61.107(a) in Areas of Operation noted in 61.107(b)",
+    "Prerequisites for Practical Test (2 calendar months) & Review of AKTR - 61.39(a)(1)(2) and (3)"
+   ],
+   "experience": [
+    "40 hours flight time",
+    "20 hours of flight training",
+    "- 3 hours cross-country flight training",
+    "- 3 hours of night flight training to include 100 nm X-C, 10 full stop landings",
+    "- 3 hours training flight by reference to instruments",
+    "- 3 hours of check ride prep within 2 calendar months",
+    "10 hours of solo flight",
+    "- 5 hours of solo cross-country flight",
+    "- One solo cross-country flight of 150nm total distance, full stop landings at 3 points",
+    "- 3 solo full stop landings in the traffic pattern at an airport w/ operating control tower"
+   ]
+  },
+  {
+   "grade": "private",
+   "grade_label": "Private Pilot",
+   "test_type": "Retest For Additional Rating",
+   "endorsements": [
+    "Flight Review and 90 Day Currency",
+    "Complex, High-Performance, High Altitude, Tailwheel as required for check ride",
+    "Retesting after Failure of Practical Test - 61.49"
+   ],
+   "experience": []
+  },
+  {
+   "grade": "private",
+   "grade_label": "Private Pilot",
+   "test_type": "Retest for Original Certificate",
+   "endorsements": [
+    "Solo Flight (additional 90-day period) - 61.87(p)",
+    "Complex, High-Performance, High Altitude, Tailwheel as required for check ride",
+    "Retesting after Failure of Practical Test - 61.49"
+   ],
+   "experience": [
+    "40 hours flight time",
+    "20 hours of flight training",
+    "- 3 hours cross-country flight training",
+    "- 3 hours of night flight training to include 100 nm X-C, 10 full stop landings",
+    "- 3 hours training flight by reference to instruments",
+    "- 3 hours of check ride prep within 2 calendar months",
+    "10 hours of solo flight",
+    "- 5 hours of solo cross-country flight",
+    "- One solo cross-country flight of 150nm total distance, full stop landings at 3 points",
+    "- 3 solo full stop landings in the traffic pattern at an airport w/ operating control tower"
+   ]
+  }
+ ]
+}

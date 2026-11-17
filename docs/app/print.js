@@ -51,16 +51,34 @@
     const qsByTask = {}; (c.questions || []).forEach((qq) => { (qsByTask[qq.task || '_'] = qsByTask[qq.task || '_'] || []).push(qq); });
     frame(box, 'Plan of action', '#/poa/' + x.p.id, `<div class="doc">${docHead('Plan of action', x)}${meta(x)}
       ${x.p.status === 'draft' ? '<p style="color:#a11c2d;font-weight:700">DRAFT — not finalized.</p>' : ''}
+      ${testDetails(x)}
       <h2>Pretest briefing</h2><p>${nl(c.briefings && c.briefings.pretest)}</p>
       <h2>Scenario</h2><p><b>${esc(sc.missionName || 'Mission')}</b>${sc.dep || sc.dest ? ' — ' + esc([sc.dep, sc.dest].filter(Boolean).join(' to ')) + (sc.alt ? ', alternate ' + esc(sc.alt) : '') : ''}</p><p>${nl(sc.mission)}</p>
       ${sc.route || sc.pax || sc.weather || sc.constraints ? `<table><tbody>${[['Route / altitude', sc.route], ['Passengers & cargo', sc.pax], ['Weather', sc.weather], ['Constraints', sc.constraints]].filter((r) => r[1]).map((r) => `<tr><th style="width:24%">${r[0]}</th><td>${nl(r[1])}</td></tr>`).join('')}</tbody></table>` : ''}
       ${(sc.triggers || []).length ? `<h3>Planned events (examiner only)</h3><table><thead><tr><th>Phase</th><th>Event</th><th>Expected response</th><th>Tasks</th></tr></thead><tbody>${sc.triggers.map((t) => `<tr class="avoid"><td>${esc(t.phase)}</td><td><b>${esc(t.name)}</b><br>${esc(t.text)}</td><td>${esc(t.expected || '')}</td><td style="font-family:var(--mono);font-size:8pt">${esc((t.covers || []).join(' '))}</td></tr>`).join('')}</tbody></table>` : ''}
       <h2>Preflight briefing</h2><p>${nl(c.briefings && c.briefings.preflight)}</p>
       <h2 class="pb">Tasks and elements</h2><p class="xs">Tasks from ${esc(x.doc.num)}. ${x.doc.kind === 'ACS' ? 'K = knowledge, R = risk management, S = skill.' : ''} Method: O = oral, F = flight, B = both.</p>
-      ${byArea(included(x)).map(({ area, list }) => `<h3>${esc(area.roman)}. ${esc(area.title)}</h3><table><thead><tr><th style="width:12%">Task</th><th>Elements to evaluate</th><th style="width:5%">M</th></tr></thead><tbody>${list.map((t) => { const ct = c.tasks[t.key]; const els = elText(x, t); const qq = qsByTask[t.key] || []; return `<tr class="avoid"><td><b style="font-family:var(--mono)">${esc(t.key)}</b><br>${esc(t.task.title_plain || t.task.title)}</td><td>${els.map((y) => `<div><span style="font-family:var(--mono);font-size:8pt">${esc(y.code)}</span> ${esc(y.e.text)}</div>`).join('')}${qq.length ? `<div style="margin-top:.3em;border-top:1px dotted #999;padding-top:.2em"><i></i>${qq.map((z) => `<div>• ${esc(z.prompt)}</div>`).join('')}</div>` : ''}</td><td>${esc({ oral: 'O', flight: 'F', both: 'B' }[ct.method] || '')}</td></tr>`; }).join('')}</tbody></table>`).join('')}
+      ${byArea(included(x)).map(({ area, list }) => `<h3>${esc(area.roman)}. ${esc(area.title)}</h3><table><thead><tr><th style="width:12%">Task</th><th>Elements to evaluate</th><th style="width:5%">M</th></tr></thead><tbody>${list.map((t) => { const ct = c.tasks[t.key]; const els = elText(x, t); const qq = qsByTask[t.key] || []; const tsc = (sc.taskScenarios || {})[t.key]; return `<tr class="avoid"><td><b style="font-family:var(--mono)">${esc(t.key)}</b><br>${esc(t.task.title_plain || t.task.title)}${t.task.quick ? `<div style="font-size:8pt;margin-top:.2em">Std: ${esc(t.task.quick)}</div>` : ''}</td><td>${tsc ? `<div style="margin-bottom:.25em"><b>Scenario:</b> ${esc(tsc)}</div>` : ''}${els.map((y) => `<div><span style="font-family:var(--mono);font-size:8pt">${esc(y.code)}</span> ${esc(y.e.text)}</div>`).join('')}${qq.length ? `<div style="margin-top:.3em;border-top:1px dotted #999;padding-top:.2em"><i></i>${qq.map((z) => `<div>• ${esc(z.prompt)}${z.expected ? `<div style="font-size:8pt;margin-left:.8em;color:#333">Expected: ${esc(z.expected)}</div>` : ''}</div>`).join('')}</div>` : ''}</td><td>${esc({ oral: 'O', flight: 'F', both: 'B' }[ct.method] || '')}</td></tr>`; }).join('')}</tbody></table>`).join('')}
       ${(qsByTask._ || []).length ? `<h3>Other questions</h3>${qsByTask._.map((z) => `<div>• ${esc(z.prompt)}</div>`).join('')}` : ''}
+      ${flightChecklist(x)}
       <h2>Postflight debriefing</h2><p>${nl(c.briefings && c.briefings.postflight)}</p>
       <div class="sig"><div>Examiner signature / date</div><div>Applicant acknowledgment of briefing / date</div></div>${foot(x)}</div>`);
+  }
+  // Header block and flight-portion checklist carried over from the JPJ plan of action.
+  function testDetails(x) {
+    const a = x.app || {}; const cr = x.p.content.checkride || {}; const kt = a.knowledge_test || {};
+    const rows = [['Certificate no. (last 4)', a.cert_number_last4], ['FTN', a.ftn], ['Preapproval no.', cr.preapproval_number], ['Flight school', a.school],
+      ['Recommending instructor', [a.recommending_instructor, a.instructor_cert_number ? 'cert. ' + a.instructor_cert_number : ''].filter(Boolean).join(', ')],
+      ['Checkride date / time', cr.scheduled_at ? fmtDT(cr.scheduled_at) : fmtDate(x.p.test_date)], ['Departure airport', (x.p.content.scenario || {}).dep || x.p.location],
+      ['Type of practical test', cr.test_type || E.PURPOSE_LABEL[x.p.purpose]], ['Applied for on basis of', cr.basis], ['ACS / PTS version', x.doc.num + ' (' + x.doc.edition_date + ')'],
+      ['Aircraft make and model', x.ac ? x.ac.make_model : cr.aircraft], ['AKTR incorrect answers', (x.p.content.aktr || kt.aktr || []).join(', ') || 'None recorded'], ['Evaluator notes', cr.notes]];
+    return `<table class="avoid"><tbody>${rows.map(([k, v]) => `<tr><th style="width:28%">${k}</th><td>${esc(v || '—')}</td></tr>`).join('')}</tbody></table>`;
+  }
+  function flightChecklist(x) {
+    const c = x.p.content; const list = included(x).filter((t) => (c.tasks[t.key].method || 'oral') !== 'oral');
+    if (!list.length) return '';
+    return `<h2 class="pb">Flight portion checklist</h2><p class="xs">Tick each task as completed. Std = examiner tolerance summary; the ACS skill elements govern.</p>
+      <table><tbody>${byArea(list).map(({ area, list: l }) => `<tr><th colspan="2">${esc(area.roman)}. ${esc(area.title)}</th></tr>${l.map((t) => `<tr class="avoid"><td style="width:11%;white-space:nowrap">_____ ${esc(t.task.letter)}</td><td>${esc(t.task.title_plain || t.task.title)}${t.task.quick ? ` <span style="font-size:8pt">— ${esc(t.task.quick)}${t.task.quick_src === 'examiner' ? ' (examiner practice)' : ''}</span>` : ''}</td></tr>`).join('')}`).join('')}</tbody></table>`;
   }
 
   async function printProof(m) {

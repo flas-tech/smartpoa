@@ -247,3 +247,9 @@ table.t tr.click { cursor: pointer; } table.t tr.click:hover td { background: #f
   .task-row { flex-wrap: wrap; }
   .task-row .seg { margin-left: 2.4rem; }
 }
+.nav-badge { margin-left: auto; background: var(--warn, #b7791f); color: #fff; font-size: .7rem; font-weight: 700; border-radius: 999px; padding: .05rem .45rem; min-width: 1.3rem; text-align: center; }
+.flag-row { display: grid; grid-template-columns: auto 1fr auto; gap: .6rem .9rem; align-items: start; padding: .75rem 0; border-top: 1px solid var(--line, #e3e6ea); }
+.flag-row:first-of-type { border-top: 0; }
+.flag-row .detail { white-space: pre-line; }
+.flag-row .acts { display: flex; gap: .35rem; flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 640px) { .flag-row { grid-template-columns: 1fr; } .flag-row .acts { justify-content: flex-start; } }

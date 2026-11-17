@@ -17,7 +17,7 @@
   const fmtDT = (d) => d ? new Date(d).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
   const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
   const ROLE_LABEL = { org_admin: 'Organization admin', examiner: 'Examiner', office: 'Office staff', auditor: 'Auditor (read-only)' };
-  const ROLE_DESC = { org_admin: 'Members, roles, aircraft and settings. Sees everything in the organization.', examiner: 'Builds, finalizes and signs plans of action and debriefs.', office: 'Applicant records, aircraft and documents. Cannot see plans, questions or grades.', auditor: 'Read-only access to records, plans, outcomes and the audit trail.' };
+  const ROLE_DESC = { org_admin: 'Members, roles, aircraft and settings. Sees everything in the organization.', examiner: 'Builds, finalizes and signs plans of action and debriefs.', office: 'Applicant records, checkride schedule, aircraft and documents. Cannot see plans, questions or element grades.', auditor: 'Read-only access to records, plans, outcomes and the audit trail.' };
   function toast(msg, bad) { qsa('.toast').forEach((x) => x.remove()); const t = document.createElement('div'); t.className = 'toast' + (bad ? ' bad' : ''); t.setAttribute('role', 'status'); t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), bad ? 6000 : 3000); }
   function friendly(e) {
     const m = (e && (e.message || e.error_description || e.error)) || String(e);
@@ -50,6 +50,8 @@
     gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
     shield: '<path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/>',
     file: '<path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/>',
+    cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+    flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
   };
   const icon = (k) => `<svg viewBox="0 0 24 24">${I[k] || ''}</svg>`;
 
@@ -182,18 +184,21 @@
     nav.push(['home', 'Dashboard', 'home']);
     if (o) {
       if (can('org_admin', 'examiner', 'auditor')) nav.push(['poas', 'Plans of action', 'poa']);
+      nav.push(['schedule', 'Schedule', 'cal']);
       nav.push(['applicants', 'Applicants', 'people']);
       nav.push(['aircraft', 'Aircraft', 'plane']);
       if (can('org_admin', 'examiner', 'auditor')) nav.push(['questions', 'Question bank', 'q']);
       if (can('org_admin', 'examiner', 'auditor')) nav.push(['reports', 'Reports', 'chart']);
+      nav.push(['data-review', 'Data Review', 'flag']);
     }
     nav.push(['standards', 'Standards library', 'book']);
     const admin = [];
     if (o && can('org_admin')) admin.push(['members', 'Members & roles', 'users']);
+    if (o && can('org_admin')) admin.push(['org-settings', 'Organization settings', 'gear']);
     if (o && can('org_admin', 'auditor')) admin.push(['audit', 'Audit trail', 'shield']);
     admin.push(['settings', 'My profile', 'gear']);
     if (isOwner()) admin.push(['platform', 'Platform', 'shield']);
-    const link = (n) => `<a class="nav-item ${active === n[0] ? 'active' : ''}" href="#/${n[0]}">${icon(n[2])}<span>${n[1]}</span></a>`;
+    const link = (n) => `<a class="nav-item ${active === n[0] || (active === 'orgsettings' && n[0] === 'org-settings') ? 'active' : ''}" href="#/${n[0]}">${icon(n[2])}<span>${n[1]}</span>${n[0] === 'data-review' ? '<span class="nav-badge" id="flagBadge" hidden></span>' : ''}</a>`;
     const orgs = S.ctx.orgs || [];
     $app.innerHTML = `<div class="layout"><aside class="sidebar" id="side">${brand('Flite Line Technologies')}
       ${orgs.length ? `<label class="org-switch">Organization<select id="orgSel">${orgs.map((x) => `<option value="${x.id}" ${x.id === S.orgId ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>` : ''}
@@ -204,6 +209,7 @@
     const sel = qs('#orgSel'); if (sel) sel.onchange = () => { S.orgId = sel.value; localStorage.setItem('spoa_org', S.orgId); go('#/home'); };
     qs('#signout').onclick = (e) => { e.preventDefault(); signOut(); };
     qs('#menuBtn').onclick = () => qs('#side').classList.toggle('open');
+    if (o) sb.from('data_flags').select('id', { count: 'exact', head: true }).eq('org_id', S.orgId).eq('status', 'open').then(({ count }) => { const b = qs('#flagBadge'); if (b && count) { b.textContent = count; b.hidden = false; } });
     document.addEventListener('click', (e) => { const sd = qs('#side'); if (sd && sd.classList.contains('open') && !sd.contains(e.target) && e.target.id !== 'menuBtn') sd.classList.remove('open'); }, { once: true });
     return qs('#content');
   }
@@ -280,7 +286,8 @@
       <label>FAA Tracking Number (FTN)<input name="ftn" value="${esc(a.ftn)}" maxlength="12"></label><label>IACRA application ID<input name="iacra_app_id" value="${esc(a.iacra_app_id)}"></label>
       <label>Certificate / ratings held<input name="cert_held" placeholder="e.g. Private ASEL" value="${esc(a.cert_held)}"></label><label>Certificate number (last 4 only)<input name="cert_number_last4" maxlength="4" value="${esc(a.cert_number_last4)}"></label>
       <label>Medical class<select name="medical_class">${['', 'First', 'Second', 'Third', 'BasicMed', 'Not required'].map((x) => `<option ${a.medical_class === x ? 'selected' : ''}>${x}</option>`).join('')}</select></label><label>Medical date<input name="medical_date" type="date" value="${esc(a.medical_date)}"></label>
-      <label>Recommending instructor<input name="recommending_instructor" value="${esc(a.recommending_instructor)}"></label><label>School / flight department<input name="school" value="${esc(a.school)}"></label>
+      <label>Recommending instructor<input name="recommending_instructor" value="${esc(a.recommending_instructor)}"></label><label>Instructor certificate number<input name="instructor_cert_number" maxlength="20" value="${esc(a.instructor_cert_number)}"></label>
+      <label class="full">School / flight department<input name="school" value="${esc(a.school)}"></label>
       <div class="full"><h3>Knowledge test</h3></div>
       <label>Test<input name="kt_test" placeholder="e.g. PAR" value="${esc(kt.test)}"></label><label>Date taken<input name="kt_date" type="date" value="${esc(kt.date)}"></label>
       <label>Score (%)<input name="kt_score" inputmode="numeric" value="${esc(kt.score)}"></label><label>Report valid until<input name="kt_expires" type="date" value="${esc(kt.expires)}"></label>
@@ -295,7 +302,7 @@
         if (bad.length) { qs('#err', bg).innerHTML = `<div class="err">These do not look like ACS codes: ${esc(bad.join(', '))}</div>`; return; }
         const row = { first_name: f.first_name.value.trim(), last_name: f.last_name.value.trim(), email: f.email.value.trim() || null, phone: f.phone.value.trim() || null, ftn: f.ftn.value.trim() || null,
           iacra_app_id: f.iacra_app_id.value.trim() || null, cert_held: f.cert_held.value.trim() || null, cert_number_last4: f.cert_number_last4.value.trim() || null, medical_class: f.medical_class.value || null,
-          medical_date: f.medical_date.value || null, recommending_instructor: f.recommending_instructor.value.trim() || null, school: f.school.value.trim() || null, notes: f.notes.value.trim() || null,
+          medical_date: f.medical_date.value || null, recommending_instructor: f.recommending_instructor.value.trim() || null, instructor_cert_number: f.instructor_cert_number.value.trim() || null, school: f.school.value.trim() || null, notes: f.notes.value.trim() || null,
           knowledge_test: { test: f.kt_test.value.trim(), date: f.kt_date.value, score: f.kt_score.value.trim(), expires: f.kt_expires.value, aktr: codes } };
         const b = qs('button[type=submit]', f);
         try {
@@ -309,25 +316,28 @@
     const c = shell('applicants');
     const a = await q(sb.from('applicants').select('*').eq('id', id).single());
     const showPoa = can('org_admin', 'examiner', 'auditor');
-    const [poas, docs, dbs] = await Promise.all([
+    const [poas, docs, dbs, crs] = await Promise.all([
       showPoa ? q(sb.from('poas').select('id,title,status,purpose,test_date,version').eq('applicant_id', id).order('created_at', { ascending: false })) : [],
       q(sb.from('documents').select('*').eq('applicant_id', id).order('uploaded_at', { ascending: false })),
       showPoa ? q(sb.from('debriefs').select('id,poa_id,outcome,status,test_date,unsat_codes').eq('applicant_id', id).order('created_at', { ascending: false })) : [],
+      q(sb.from('checkrides').select('*').eq('applicant_id', id).order('scheduled_at', { ascending: false })),
     ]);
+    const aflags = await A2().flagsFor(id);
     const kt = a.knowledge_test || {};
     const canEdit = can('org_admin', 'examiner', 'office');
     c.innerHTML = head(esc(a.first_name + ' ' + a.last_name), esc([a.cert_held, a.school].filter(Boolean).join(' · ')) || 'Applicant record',
-      (canEdit ? '<button class="btn ghost" id="edit">Edit</button>' : '') + (can('org_admin', 'examiner') ? `<a class="btn" href="#/poa/new?applicant=${a.id}">New plan of action</a>` : '')) +
-      `<div class="grid2"><div class="card"><h2>Record</h2><table class="t">
-        ${[['Email', a.email], ['Phone', a.phone], ['FTN', a.ftn], ['IACRA application', a.iacra_app_id], ['Held', a.cert_held], ['Certificate no. (last 4)', a.cert_number_last4], ['Medical', [a.medical_class, fmtDate(a.medical_date)].filter(Boolean).join(' · ')], ['Recommending instructor', a.recommending_instructor], ['School', a.school]].map(([k, v]) => `<tr><td class="sm muted" style="width:40%">${k}</td><td class="sm">${esc(v || '—')}</td></tr>`).join('')}
+      A2().flagButton('applicant', a.id) + (canEdit ? '<button class="btn ghost" id="edit">Edit</button>' : '') + (can('org_admin', 'examiner') ? `<a class="btn" href="#/poa/new?applicant=${a.id}">New plan of action</a>` : '')) +
+      `${aflags.length ? `<div class="banner warn"><b>Flagged in Data Review:</b> ${aflags.map((x) => esc(x.title)).join('; ')}. <a href="#/data-review">Review</a></div>` : ''}<div class="grid2"><div class="card"><h2>Record</h2><table class="t">
+        ${[['Email', a.email], ['Phone', a.phone], ['FTN', a.ftn], ['IACRA application', a.iacra_app_id], ['Held', a.cert_held], ['Certificate no. (last 4)', a.cert_number_last4], ['Medical', [a.medical_class, fmtDate(a.medical_date)].filter(Boolean).join(' · ')], ['Recommending instructor', a.recommending_instructor], ['Instructor certificate no.', a.instructor_cert_number], ['School', a.school]].map(([k, v]) => `<tr><td class="sm muted" style="width:40%">${k}</td><td class="sm">${esc(v || '—')}</td></tr>`).join('')}
         </table>${a.notes ? `<p class="sm">${esc(a.notes)}</p>` : ''}</div>
         <div class="card"><h2>Knowledge test</h2><table class="t">${[['Test', kt.test], ['Date', fmtDate(kt.date)], ['Score', kt.score ? kt.score + '%' : ''], ['Valid until', fmtDate(kt.expires)]].map(([k, v]) => `<tr><td class="sm muted" style="width:40%">${k}</td><td class="sm">${esc(v || '—')}</td></tr>`).join('')}</table>
         <h3>AKTR deficiency codes</h3>${(kt.aktr || []).length ? `<div class="chips">${kt.aktr.map((x) => `<span class="chip">${esc(x)}</span>`).join('')}</div>` : '<p class="sm muted">None recorded.</p>'}
         ${kt.expires && kt.expires < today() ? '<div class="banner bad" style="margin-top:.8rem">The knowledge test report has expired.</div>' : ''}</div></div>
       ${showPoa ? `<div class="card"><div class="card-head"><h2>Plans of action</h2></div>${poas.length ? `<table class="t"><thead><tr><th>Plan</th><th>Status</th><th>Test date</th></tr></thead>${poas.map((p) => `<tr class="click" data-h="#/poa/${p.id}"><td>${esc(p.title)} <span class="xs muted">v${p.version}</span></td><td>${statusPill(p.status)}</td><td class="sm">${fmtDate(p.test_date)}</td></tr>`).join('')}</table>` : '<div class="empty sm">No plans yet.</div>'}</div>
       <div class="card"><h2>Results</h2>${dbs.length ? `<table class="t"><thead><tr><th>Date</th><th>Outcome</th><th>Unsatisfactory ACS codes</th></tr></thead>${dbs.map((d) => `<tr class="click" data-h="#/debrief/${d.poa_id}"><td class="sm">${fmtDate(d.test_date)}</td><td>${outcomePill(d.outcome, d.status)}</td><td class="sm mono">${esc((d.unsat_codes || []).join(', ') || '—')}</td></tr>`).join('')}</table>` : '<div class="empty sm">No results recorded.</div>'}</div>` : ''}
+      <div class="card"><div class="card-head"><h2>Checkrides</h2>${canEdit ? `<a class="btn sm ghost" href="#/schedule?all=1&new=1&applicant=${a.id}">Schedule checkride</a>` : ''}</div>${crs.length ? `<table class="t"><thead><tr><th>Date</th><th>Test</th><th>Result</th><th>Ground / flight</th></tr></thead>${crs.map((r) => `<tr class="click" data-h="#/schedule?all=1&open=${r.id}"><td class="sm">${esc(fmtDT(r.scheduled_at) || '—')}</td><td class="sm">${esc(r.test_type)}<div class="xs muted">${esc([(window.SPOA.CR.GRADES[r.grade_sought] || ''), r.class, r.departure_airport].filter(Boolean).join(' · '))}</div></td><td>${window.SPOA.CR.resultPill(r.result)}</td><td class="sm">${r.ground_time != null ? (+r.ground_time).toFixed(1) : '—'} / ${r.flight_time != null ? (+r.flight_time).toFixed(1) : '—'}</td></tr>`).join('')}</table>` : '<div class="empty sm">No checkride records.</div>'}</div>
       <div class="card"><div class="card-head"><h2>Documents</h2>${canEdit ? '<button class="btn sm" id="up">Upload</button>' : ''}</div><div id="docs"></div></div>`;
-    bindRows(c);
+    bindRows(c); A2().bindFlagButtons(c);
     renderDocs(qs('#docs', c), docs);
     if (qs('#edit', c)) qs('#edit', c).onclick = () => applicantForm(a, () => route());
     if (qs('#up', c)) qs('#up', c).onclick = () => uploadDoc({ applicant_id: a.id }, () => route());
@@ -407,6 +417,12 @@
     qs('#fs', c).onchange = render; qs('#srch', c).oninput = render; render();
   }
 
+  const A2 = () => window.SPOA;
+  function testTypeOf(p) {
+    if (p.content && p.content.checkride && p.content.checkride.test_type) return p.content.checkride.test_type;
+    const ins = p.test_profile.cert === 'instrument';
+    return { practical_test: ins ? 'Instrument Rating' : 'Original Certificate', added_rating: 'Additional Rating', retest: ins ? 'Retest for Instrument Rating' : 'Retest for Original Certificate', continuation: 'Continued from Previously Discontinued Test', reinstatement: 'Reinstatement of CFI' }[p.purpose] || 'Original Certificate';
+  }
   // ---------- POA builder ----------
   function profileTitle(p, applicant) {
     const cls = p.cls ? ' ' + p.cls : '';
@@ -420,12 +436,15 @@
     await loadStd();
     const [apps, acs, prior] = await Promise.all([q(sb.from('applicants').select('id,first_name,last_name,cert_held').eq('org_id', S.orgId).eq('archived', false).order('last_name')), q(sb.from('aircraft').select('*').eq('org_id', S.orgId).eq('archived', false).order('tail')),
       q(sb.from('debriefs').select('id,poa_id,applicant_id,results,outcome,test_date').eq('org_id', S.orgId).in('outcome', ['fail', 'discontinued']).eq('status', 'signed'))]);
-    const pre = params.get('applicant');
+    const crId = params.get('checkride');
+    const cr = crId ? await q(sb.from('checkrides').select('*').eq('id', crId).single()) : null;
+    const orgSt = await A2().orgSettings();
+    const pre = params.get('applicant') || (cr && cr.applicant_id);
     c.innerHTML = head('New plan of action', 'Choose the purpose and the certificate or rating. smartPOA selects the governing ACS or PTS and the required tasks.') +
       `<div class="card" style="max-width:820px"><form id="f"><div class="form-grid">
       <label>Purpose<select name="purpose">${Object.entries(E.PURPOSE_LABEL).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
       <label>Applicant<select name="applicant" required><option value="">Select…</option>${apps.map((a) => `<option value="${a.id}" ${a.id === pre ? 'selected' : ''}>${esc(a.last_name)}, ${esc(a.first_name)}${a.cert_held ? ' — ' + esc(a.cert_held) : ''}</option>`).join('')}</select>${apps.length ? '' : '<span class="xs"><a href="#/applicants">Add an applicant first</a></span>'}</label>
-      <label>Certificate level<select name="cert"><option value="private">Private Pilot</option><option value="commercial">Commercial Pilot</option><option value="instrument">Instrument Rating</option><option value="atp">Airline Transport Pilot / type rating</option></select></label>
+      <label>Certificate level<select name="cert"><option value="private">Private Pilot</option><option value="commercial">Commercial Pilot</option><option value="instrument">Instrument Rating</option><option value="atp">Airline Transport Pilot / type rating</option><option value="cfi">Flight Instructor (Airplane)</option></select></label>
       <label>Category / class for this test<select name="cls">${['ASEL', 'AMEL', 'ASES', 'AMES', 'RH', 'RG'].map((x) => `<option value="${x}">${x} — ${E.CLASS_LABEL[x]}</option>`).join('')}</select></label>
       <label id="heldL" style="display:none">Rating already held (for the Additional Rating Task Table)<select name="held">${E.HELD_OPTIONS.map((x) => `<option value="${x}">${x}</option>`).join('')}</select></label>
       <label id="typeL" style="display:none">Type designator<input name="typeDesignator" placeholder="e.g. CE-525S"></label>
@@ -437,13 +456,23 @@
       <div id="res" class="banner info" style="margin-top:.4rem"></div>
       <div class="btn-row" style="justify-content:flex-end"><a class="btn ghost" href="#/poas">Cancel</a><button class="btn" type="submit">Create plan</button></div></form></div>`;
     const f = qs('#f', c);
+    if (cr) {
+      const pu = window.SPOA.CR.PURPOSE_OF[cr.test_type]; if (pu) f.purpose.value = pu;
+      if (cr.grade_sought) f.cert.value = cr.grade_sought;
+      if (cr.class) f.cls.value = cr.class;
+      if (cr.scheduled_at) f.test_date.value = cr.scheduled_at.slice(0, 10);
+      if (cr.departure_airport) f.location.value = cr.departure_airport;
+      const tailOpt = Array.from(f.aircraft.options).find((o) => cr.tail_number && o.textContent.toUpperCase().startsWith(cr.tail_number.toUpperCase())); if (tailOpt) f.aircraft.value = tailOpt.value;
+      c.querySelector('.page-head .sub').textContent = 'Prefilled from the checkride record: ' + [cr.test_type, cr.departure_airport, cr.scheduled_at ? fmtDT(cr.scheduled_at) : ''].filter(Boolean).join(' · ') + '. Review each field.';
+    }
     const sync = () => {
       const p = f.purpose.value;
       qs('#heldL', c).style.display = p === 'added_rating' ? '' : 'none';
       qs('#typeL', c).style.display = p === 'type_rating' || f.cert.value === 'atp' ? '' : 'none';
       qs('#atpL', c).style.display = p === 'type_rating' ? '' : 'none';
-      qs('#retL', c).style.display = p === 'retest' ? '' : 'none';
+      qs('#retL', c).style.display = p === 'retest' || p === 'continuation' ? '' : 'none';
       if (p === 'type_rating') f.cert.value = 'atp';
+      if (p === 'reinstatement') f.cert.value = 'cfi';
       const prof = { cert: f.cert.value, cls: f.cls.value, purpose: p, held: f.held.value };
       const r = E.resolveStandard(S.std, prof);
       if (r.error) { qs('#res', c).className = 'banner bad'; qs('#res', c).textContent = r.error; return; }
@@ -458,7 +487,7 @@
       e.preventDefault();
       const prof = { cert: f.cert.value, cls: f.cls.value, purpose: f.purpose.value, held: f.purpose.value === 'added_rating' ? f.held.value : null, atpCert: f.purpose.value === 'type_rating' ? f.atpCert.checked : f.cert.value === 'atp', typeDesignator: f.typeDesignator.value.trim() || null };
       const r = E.resolveStandard(S.std, prof); if (r.error) { toast(r.error, true); return; }
-      if (prof.purpose === 'retest') {
+      if (prof.purpose === 'retest' || prof.purpose === 'continuation') {
         const d = prior.find((x) => x.id === f.retest.value);
         if (!d) { toast('Select the previous attempt.', true); return; }
         prof.retestTasks = Object.entries(d.results || {}).filter(([, v]) => v.grade !== 'S').map(([k]) => k);
@@ -467,15 +496,23 @@
       const app = apps.find((a) => a.id === f.applicant.value); if (!app) { toast('Select an applicant.', true); return; }
       const appFull = await q(sb.from('applicants').select('knowledge_test').eq('id', app.id).single());
       const aktr = (appFull.knowledge_test && appFull.knowledge_test.aktr) || [];
-      const tasks = E.requiredTasks(r.doc, prof);
       const usage = await elementUsage();
+      const tasks = E.requiredTasks(r.doc, prof, { usage });
+      if (r.doc.cfi_matrix && prof.cert === 'cfi') prof.cfiPicks = tasks.filter((t) => t.required).map((t) => t.key);
       const content = { tasks: {}, scenario: { triggers: [] }, briefings: {}, questions: [], eligibility: {}, attest: {}, aktr };
       tasks.forEach((t) => { const s = E.selectElements(r.doc, t.area, t.task, { aktr, usage }); content.tasks[t.key] = { included: t.required, elements: t.required ? s.selected : [], why: s.why, method: defaultMethod(t), excludeReason: '' }; });
-      Object.keys(E.DEFAULT_BRIEFINGS).forEach((k) => content.briefings[k] = E.DEFAULT_BRIEFINGS[k].replace('{std}', r.doc.num));
+      Object.keys(E.DEFAULT_BRIEFINGS).forEach((k) => content.briefings[k] = (((orgSt.briefings || {})[k]) || E.DEFAULT_BRIEFINGS[k]).replace(/\{std\}/g, r.doc.num));
+      const sp = E.scenarioProfile(orgSt, prof.cert);
+      if (cr) { content.scenario.dep = cr.departure_airport || ''; content.checkride = { id: cr.id, test_type: cr.test_type, basis: cr.basis, preapproval_number: cr.preapproval_number, scheduled_at: cr.scheduled_at, aircraft: cr.aircraft_make_model, tail: cr.tail_number, notes: cr.notes }; }
+      if (sp) { content.scenario.profile = sp; if (sp.arrival && !content.scenario.dest) content.scenario.dest = sp.arrival; if (sp.weather) content.scenario.weather = sp.weather; }
       const ac = acs.find((a) => a.id === f.aircraft.value);
       const row = { org_id: S.orgId, applicant_id: app.id, aircraft_id: ac ? ac.id : null, examiner_id: S.ctx.user_id, purpose: prof.purpose, test_profile: prof, standard_id: r.doc.id,
         standard_sha256: ((S.docsDb || []).find((d) => d.id === r.doc.id) || {}).sha256 || r.doc.sha256, test_date: f.test_date.value || null, location: f.location.value.trim() || null, title: profileTitle(prof, app), content };
-      try { const p = await act(qs('button[type=submit]', f), () => q(sb.from('poas').insert(row).select('id').single())); go('#/poa/' + p.id + '?step=tasks'); } catch (_) {}
+      try {
+        const p = await act(qs('button[type=submit]', f), () => q(sb.from('poas').insert(row).select('id').single()));
+        if (cr) { try { await q(sb.from('checkrides').update({ poa_id: p.id }).eq('id', cr.id)); } catch (_) { toast('Plan created, but the checkride record could not be linked.', true); } }
+        go('#/poa/' + p.id + '?step=tasks');
+      } catch (_) {}
     });
   }
   function defaultMethod(t) {
@@ -494,7 +531,7 @@
   const STEPS = [['setup', 'Setup'], ['tasks', 'Tasks & elements'], ['scenario', 'Scenario'], ['briefings', 'Briefings'], ['questions', 'Questions'], ['review', 'Eligibility & compliance']];
   async function viewPoa(id, params) {
     const c = shell('poas');
-    await Promise.all([loadStd(), S.docsDb ? null : loadDocsDb()]);
+    await Promise.all([loadStd(), S.docsDb ? null : loadDocsDb(), A2().loadBriefReq().catch(() => null)]);
     let p = await q(sb.from('poas').select('*').eq('id', id).single());
     const doc = stdDoc(p.standard_id);
     const [app, ac, prior, versions, dbs, docs] = await Promise.all([
@@ -591,6 +628,7 @@
               <div class="task-row"><input type="checkbox" class="inc" ${ct.included ? 'checked' : ''} ${dis} aria-label="Include task"><span class="tl">${t.key}</span>
               <div class="tt"><div class="strong sm">${esc(t.task.title)}</div><div class="xs muted">${t.required ? '<span class="pill accent">Required</span> ' : '<span class="pill">Optional</span> '}${esc(t.reason)}</div>
               ${t.task.notes.length ? `<div class="xs muted" style="margin-top:.25rem">Note: ${t.task.notes.map(esc).join(' ')}</div>` : ''}
+              ${t.task.quick ? `<div class="xs" style="margin-top:.25rem"><span class="pill info">Examiner tolerance summary</span> ${esc(t.task.quick)}${t.task.quick_src === 'examiner' ? ' <span class="muted">(examiner practice; this task has no ACS numeric tolerance)</span>' : ''}</div>` : ''}${t.task.exnote ? `<div class="xs muted" style="margin-top:.25rem">Examiner note: ${esc(t.task.exnote)}</div>` : ''}
               ${t.required && !ct.included ? `<label class="xs" style="margin:.35rem 0 0">Reason for leaving out (shown on the proof form)<input class="exr" ${dis} value="${esc(ct.excludeReason)}"></label>` : ''}</div>
               <div class="seg" role="group" aria-label="Method">${['oral', 'flight', 'both'].map((m) => `<button type="button" data-m="${m}" class="${ct.method === m ? 'on' : ''}" ${dis}>${m === 'both' ? 'Both' : m === 'oral' ? 'Oral' : 'Flight'}</button>`).join('')}</div></div>
               <details class="els-d" ${ct.included ? '' : ''}><summary class="xs muted" style="margin:.35rem 0 0 3.8rem;cursor:pointer">${sel.size} of ${t.task.elements.length} elements selected</summary><div class="els">
@@ -634,6 +672,8 @@
       const on = new Set((sc.triggers || []).map((t) => t.id));
       const uncovered = tasks.filter((t) => t.required && !cov.covered.includes(t.key));
       el.innerHTML = `<div class="grid2"><div class="card"><h2>Mission</h2>
+        ${editable && can('org_admin', 'examiner') ? `<div class="btn-row" style="margin-bottom:.4rem"><button type="button" class="btn ghost sm" id="aiM">Draft scenario with AI</button><button type="button" class="btn ghost sm" id="aiT">Draft task sub-scenarios with AI</button><span class="xs muted">AI drafts need examiner review. No applicant information is sent.</span></div>` : ''}
+        ${sc.aiDraft ? '<div class="banner warn xs" style="margin-bottom:.4rem">AI draft — examiner review required before use.</div>' : ''}
         <label>Start from a template<select id="tpl" ${dis}><option value="">Choose a mission template…</option>${missions.map((m, i) => `<option value="${i}">${esc(m.name)}</option>`).join('')}</select></label>
         <div class="form-grid3"><label>Departure<input id="dep" ${dis} value="${esc(sc.dep)}" placeholder="KPBI"></label><label>Destination<input id="dest" ${dis} value="${esc(sc.dest)}" placeholder="KVRB"></label><label>Alternate<input id="alt" ${dis} value="${esc(sc.alt)}" placeholder="KFPR"></label></div>
         <label>Scenario given to the applicant<textarea id="mission" ${dis} style="min-height:140px" placeholder="Describe the flight the applicant will plan.">${esc(sc.mission)}</textarea></label>
@@ -642,6 +682,7 @@
         <label>Constraints given to the applicant<textarea id="cons" ${dis} style="min-height:60px" placeholder="e.g. Must arrive before 1700; one passenger is nervous">${esc(sc.constraints)}</textarea></label></div>
         <div class="card"><h2>Scenario coverage</h2><div class="meter" aria-label="coverage"><i style="width:${pct}%"></i></div><p class="sm"><b>${cov.covered.length} of ${cov.total}</b> required tasks are evaluated through the planning phase and selected events (${pct}%). The managing specialist looks for a scenario that evaluates most tasks with minimum disruptions.</p>
         ${uncovered.length ? `<h3>Not yet covered by the scenario</h3><div class="xs">${uncovered.map((t) => `<label class="check" style="margin-bottom:.25rem"><input type="checkbox" class="xc" data-k="${t.key}" ${(sc.extraCovered || []).includes(t.key) ? 'checked' : ''} ${dis}><span><span class="mono">${t.key}</span> ${esc(t.task.title_plain)}</span></label>`).join('')}</div><p class="xs muted">Tick a task if your mission covers it in a way not listed in events (for example, a maneuver flown as part of the arrival).</p>` : '<div class="banner ok">Every required task is tied to the scenario.</div>'}</div></div>
+        ${Object.keys(sc.taskScenarios || {}).length ? `<div class="card"><div class="card-head"><h2>Task sub-scenarios</h2><span class="xs muted">AI draft — examiner review · printed with each task</span></div>${Object.entries(sc.taskScenarios).map(([k, v]) => { const t = tasks.find((x) => x.key === k); return `<label class="sm"><span class="mono">${esc(k)}</span> ${esc(t ? t.task.title_plain || t.task.title : '')}<textarea class="tsc" data-k="${esc(k)}" ${dis} style="min-height:56px">${esc(v)}</textarea></label>`; }).join('')}${editable ? '<button type="button" class="btn ghost sm" id="clrT">Remove sub-scenarios</button>' : ''}</div>` : ''}
         <div class="card"><div class="card-head"><h2>Planned events (trigger events)</h2><span class="xs muted">${on.size} selected · events are hidden from the applicant packet</span></div>
         ${avail.map((tr) => { const sel = (sc.triggers || []).find((x) => x.id === tr.id); const covers = E.triggerCovers(tr, tasks); return `<div class="trig ${sel ? 'on' : ''}"><div class="trig-head"><input type="checkbox" class="tg" data-id="${tr.id}" ${sel ? 'checked' : ''} ${dis}><span class="phase">${esc(tr.phase)}</span><span class="strong sm" style="flex:1">${esc(tr.name)}</span><span class="xs mono muted">${covers.join(' ')}</span></div><div class="xs" style="margin:.3rem 0 0 1.6rem">${esc(sel && sel.text || tr.text)}</div>${sel ? `<label class="xs" style="margin:.4rem 0 0 1.6rem">Expected applicant response<input class="exp" data-id="${tr.id}" ${dis} value="${esc(sel.expected)}"></label>` : ''}</div>`; }).join('')}
         ${(sc.triggers || []).filter((t) => t.custom).map((t) => `<div class="trig on"><div class="trig-head"><span class="phase">${esc(t.phase)}</span><span class="strong sm" style="flex:1">${esc(t.name)}</span><span class="xs mono muted">${(t.covers || []).join(' ')}</span>${editable ? `<button class="btn ghost sm" data-rm="${t.id}">Remove</button>` : ''}</div><div class="xs" style="margin:.3rem 0 0 0">${esc(t.text)}</div></div>`).join('')}
@@ -650,6 +691,21 @@
       const bind = (id, k) => { const i = qs('#' + id, el); i.oninput = () => { sc[k] = i.value; save(); }; };
       bind('dep', 'dep'); bind('dest', 'dest'); bind('alt', 'alt'); bind('mission', 'mission'); bind('route', 'route'); bind('pax', 'pax'); bind('wx', 'weather'); bind('cons', 'constraints');
       qs('#mission', el).onchange = () => paneScenario(el);
+      const aiPayload = async () => { const st = await A2().orgSettings(); const sp = sc.profile || E.scenarioProfile(st, p.test_profile.cert) || {};
+        return { cert: E.CERT_LABEL[p.test_profile.cert], cls: p.test_profile.cls, standard: doc.num, difficulty: sp.difficulty, preference: sp.preference, weather: sp.weather, pilot: sp.pilot, aircraftFactors: sp.aircraftFactors, environment: sp.environment, pressures: sp.pressures, dep: sc.dep, dest: sc.dest, aircraft: ac ? ac.make_model : (content.checkride && content.checkride.aircraft) || '' }; };
+      const aiM = qs('#aiM', el); if (aiM) aiM.onclick = async () => {
+        if (sc.mission && sc.mission.trim().length > 30 && !(await confirmBox('Replace the scenario?', 'The AI draft replaces the current scenario text.', 'Replace'))) return;
+        try { const r = await act(aiM, async () => A2().ai('master_scenario', await aiPayload())); sc.mission = r.text; sc.missionName = sc.missionName || 'Scenario'; sc.aiDraft = true; save(); paneScenario(el); toast('AI draft added. Review before use.'); } catch (_) {}
+      };
+      const aiT = qs('#aiT', el); if (aiT) aiT.onclick = async () => {
+        if (!sc.mission || sc.mission.trim().length < 30) { toast('Write or draft the main scenario first.', true); return; }
+        const list = tasks.filter((t) => content.tasks[t.key] && content.tasks[t.key].included && content.tasks[t.key].method !== 'oral').slice(0, 30)
+          .map((t) => ({ key: t.key, title: t.task.title_plain || t.task.title, skills: t.task.elements.filter((e) => e.type === 'S').map((e) => e.text) }));
+        if (!list.length) { toast('No flight or combined tasks are included.', true); return; }
+        try { const r = await act(aiT, () => A2().ai('task_scenarios', { master: sc.mission, tasks: list })); sc.taskScenarios = Object.assign({}, sc.taskScenarios || {}); (r.items || []).forEach((x) => { if (list.some((t) => t.key === x.key)) sc.taskScenarios[x.key] = x.text; }); save(); paneScenario(el); toast((r.items || []).length + ' sub-scenario(s) drafted. Review before use.'); } catch (_) {}
+      };
+      qsa('.tsc', el).forEach((t) => t.oninput = () => { sc.taskScenarios[t.dataset.k] = t.value; save(); });
+      const clrT = qs('#clrT', el); if (clrT) clrT.onclick = () => { delete sc.taskScenarios; save(); paneScenario(el); };
       qs('#tpl', el).onchange = (e) => { const m = missions[+e.target.value]; if (!m) return; sc.missionName = m.name; sc.mission = fill(m.text); save(); paneScenario(el); };
       qsa('.tg', el).forEach((cb) => cb.onchange = () => {
         const tr = E.TRIGGERS.find((x) => x.id === cb.dataset.id);
@@ -683,10 +739,10 @@
       const bankMatch = bank.filter((b) => sel.some((s) => s.ref === b.element_code) && !qsList.some((x) => x.bankId === b.id));
       const counts = qsList.reduce((a, x) => (a[x.portion] = (a[x.portion] || 0) + 1, a), {});
       el.innerHTML = `<div class="banner info">Questions are generated from the ACS elements selected in this plan and framed in the scenario. They are drafts: review the wording before the test. Approved questions from your bank that match selected elements can be added too.</div>
-        <div class="btn-row" style="margin-bottom:.8rem">${editable ? `<button class="btn" id="gen">Generate from selected elements (${sel.length})</button>${bankMatch.length ? `<button class="btn ghost" id="bank">Add ${bankMatch.length} matching bank question(s)</button>` : ''}<button class="btn ghost" id="addQ">Add a question</button>${qsList.length ? '<button class="btn danger sm" id="clr">Clear all</button>' : ''}` : ''}
+        <div class="btn-row" style="margin-bottom:.8rem">${editable ? `<button class="btn" id="gen">Generate from selected elements (${sel.length})</button>${bankMatch.length ? `<button class="btn ghost" id="bank">Add ${bankMatch.length} matching bank question(s)</button>` : ''}${can('org_admin', 'examiner') ? `<button class="btn ghost" id="aiQ">Draft questions and expected answers with AI</button>` : ''}<button class="btn ghost" id="addQ">Add a question</button>${qsList.length ? '<button class="btn danger sm" id="clr">Clear all</button>' : ''}` : ''}
         <span class="sm muted">${qsList.length} total · ${counts.oral || 0} oral · ${counts.scenario || 0} scenario · ${counts.flight || 0} flight</span></div>
         <div class="card flush"><div class="table-wrap"><table class="t"><thead><tr><th style="width:8.5rem">Element</th><th>Prompt</th><th style="width:6.5rem">Portion</th><th></th></tr></thead><tbody>
-        ${qsList.length ? qsList.map((x, i) => `<tr><td class="mono xs">${esc(x.ref || '')}</td><td>${editable ? `<textarea data-i="${i}" class="qp" style="min-height:52px;margin:0">${esc(x.prompt)}</textarea>` : esc(x.prompt)}${x.source === 'bank' ? '<span class="pill info">Bank</span>' : ''}</td><td><span class="pill ${x.portion === 'flight' ? 'ok' : x.portion === 'scenario' ? 'warn' : 'info'}">${esc(x.portion)}</span></td><td>${editable ? `<button class="btn ghost sm" data-del="${i}" aria-label="Remove">✕</button>` : ''}</td></tr>`).join('') : '<tr><td colspan="4"><div class="empty"><span class="strong">No questions yet</span>Generate them from the selected elements.</div></td></tr>'}
+        ${qsList.length ? qsList.map((x, i) => `<tr><td class="mono xs">${esc(x.ref || '')}</td><td>${editable ? `<textarea data-i="${i}" class="qp" style="min-height:52px;margin:0">${esc(x.prompt)}</textarea>` : esc(x.prompt)}${x.source === 'bank' ? '<span class="pill info">Bank</span>' : ''}${x.source === 'ai' ? '<span class="pill warn">AI draft — examiner review</span>' : ''}${x.expected ? `<div class="xs muted" style="margin-top:.25rem"><b>Expected:</b> ${editable ? `<textarea data-i="${i}" class="qe" style="min-height:44px;margin:.2rem 0 0">${esc(x.expected)}</textarea>` : esc(x.expected)}</div>` : ''}</td><td><span class="pill ${x.portion === 'flight' ? 'ok' : x.portion === 'scenario' ? 'warn' : 'info'}">${esc(x.portion)}</span></td><td>${editable ? `<button class="btn ghost sm" data-del="${i}" aria-label="Remove">✕</button>` : ''}</td></tr>`).join('') : '<tr><td colspan="4"><div class="empty"><span class="strong">No questions yet</span>Generate them from the selected elements.</div></td></tr>'}
         </tbody></table></div></div>`;
       if (!editable) return;
       const g = qs('#gen', el); if (g) g.onclick = () => {
@@ -697,6 +753,19 @@
         save(); paneQuestions(el); toast(n + ' question(s) added');
       };
       const bk = qs('#bank', el); if (bk) bk.onclick = () => { bankMatch.forEach((b) => qsList.push({ id: uid().slice(0, 8), bankId: b.id, ref: b.element_code, task: b.task_ref, portion: b.portion, prompt: b.prompt, expected: b.expected, source: 'bank' })); save(); paneQuestions(el); };
+      const aiQ = qs('#aiQ', el); if (aiQ) aiQ.onclick = async () => {
+        const have = new Set(qsList.filter((x) => x.source === 'ai').map((x) => x.ref));
+        const pick = sel.filter(({ e, ref }) => e.type !== 'S' && !have.has(ref)).slice(0, 40);
+        if (!pick.length) { toast('Every selected knowledge and risk element already has an AI question.', true); return; }
+        const aktr = new Set((content.aktr || []).map((x) => x.toUpperCase()));
+        const st = await A2().orgSettings(); const sp = E.scenarioProfile(st, p.test_profile.cert) || {};
+        try {
+          const r = await act(aiQ, () => A2().ai('questions', { difficulty: sp.difficulty || '', elements: pick.map(({ t, e, ref }) => ({ code: ref, type: aktr.has(ref.toUpperCase()) ? 'A' : e.type, text: e.text, references: t.task.references || '' })) }));
+          let n = 0; (r.items || []).forEach((x) => { const m = pick.find((y) => y.ref.toUpperCase() === String(x.code).toUpperCase()); if (!m) return; qsList.push({ id: uid().slice(0, 8), ref: m.ref, task: m.t.key, portion: m.e.type === 'R' ? 'scenario' : 'oral', prompt: x.question, expected: x.expected, source: 'ai' }); n++; });
+          save(); paneQuestions(el); toast(n + ' AI question(s) added. Review before use.');
+        } catch (_) {}
+      };
+      qsa('.qe', el).forEach((t) => t.oninput = () => { qsList[+t.dataset.i].expected = t.value; save(); });
       const aq = qs('#addQ', el); if (aq) aq.onclick = () => { qsList.push({ id: uid().slice(0, 8), ref: '', portion: 'oral', prompt: 'New question', source: 'manual' }); save(); paneQuestions(el); };
       const cl = qs('#clr', el); if (cl) cl.onclick = async () => { if (await confirmBox('Clear all questions?', 'All questions in this plan will be removed.', 'Clear')) { content.questions = []; save(); paneQuestions(el); } };
       qsa('.qp', el).forEach((t) => t.oninput = () => { qsList[+t.dataset.i].prompt = t.value; save(); });
@@ -713,6 +782,7 @@
       const regs = S.regs.quotes;
       el.innerHTML = `<div class="grid2"><div class="card"><h2>Eligibility (examiner confirms)</h2>${items.map(([k, l]) => `<label class="check sm"><input type="checkbox" data-e="${k}" ${eg[k] ? 'checked' : ''} ${dis}><span>${esc(l)}</span></label>`).join('')}
         ${isType ? `<label class="sm">Crew complement for the test<select data-crew ${dis}><option value="">Select…</option>${['Single pilot', 'Pilot and copilot (SIC Required limitation applies)'].map((x) => `<option ${eg.crew === x ? 'selected' : ''}>${x}</option>`).join('')}</select></label>` : ''}
+        ${(() => { const br = A2().briefReqFor(p.test_profile.cert, testTypeOf(p)); return br ? `<details style="margin-top:.6rem"><summary class="sm strong" style="cursor:pointer">Endorsements and experience to check (${esc(br.grade_label)} — ${esc(br.test_type)})</summary>${br.endorsements.length ? `<h3>Endorsements</h3><ul class="sm">${br.endorsements.map((x) => `<li>${esc(x.replace(/^- /, ''))}</li>`).join('')}</ul>` : ''}${br.experience.length ? `<h3>Aeronautical experience</h3><ul class="sm">${br.experience.map((x) => `<li${/^- /.test(x) ? ' style="margin-left:1rem;list-style:circle"' : ''}>${esc(x.replace(/^- /, ''))}</li>`).join('')}</ul>` : ''}<p class="xs muted">Examiner checklist from the JPJ plan of action. 14 CFR part 61 governs.</p></details>` : ''; })()}
         ${doc.kind === 'PTS' ? `<label class="check sm"><input type="checkbox" data-a="special_emphasis" ${at.special_emphasis ? 'checked' : ''} ${dis}><span>Special emphasis items in ${esc(doc.num)} will be evaluated throughout the test</span></label>` : ''}</div>
         <div class="card"><h2>Summary</h2><div class="kpis small" style="grid-template-columns:repeat(2,1fr)"><div class="kpi"><div class="kpi-label">Met</div><div class="kpi-value" style="color:var(--ok)">${cc.counts.met || 0}</div></div><div class="kpi"><div class="kpi-label">Examiner attested</div><div class="kpi-value" style="color:var(--info)">${cc.counts.attested || 0}</div></div><div class="kpi"><div class="kpi-label">To review</div><div class="kpi-value" style="color:var(--warn)">${cc.counts.review || 0}</div></div><div class="kpi"><div class="kpi-label">Gaps</div><div class="kpi-value" style="color:var(--bad)">${cc.counts.gap || 0}</div></div></div>
         <p class="xs muted">Gaps must be resolved before finalizing. Review items are allowed but appear on the proof form.</p><a class="btn ghost sm" href="#/print/proof/${p.id}">Open proof of compliance</a></div></div>
@@ -727,7 +797,7 @@
   }
 
   // expose for other modules
-  Object.assign(window.SPOA, { esc, qs, qsa, fmtDate, fmtDT, today, uid, rpc, q, act, busy, toast, friendly, go, org, roles, can, isOwner, shell, head, modal, confirmBox, loadStd, loadDocsDb, stdDoc, bindRows, statusPill, outcomePill, renderDocs, uploadDoc, ROLE_LABEL, ROLE_DESC, noOrg, AKTR_RE, aktrList });
+  Object.assign(window.SPOA, { esc, qs, qsa, fmtDate, fmtDT, today, uid, rpc, q, act, busy, toast, friendly, go, org, roles, can, isOwner, shell, head, modal, confirmBox, loadStd, loadDocsDb, stdDoc, bindRows, statusPill, outcomePill, renderDocs, uploadDoc, ROLE_LABEL, ROLE_DESC, noOrg, AKTR_RE, aktrList, route });
 
   // ---------- router ----------
   const ROUTES = [];
