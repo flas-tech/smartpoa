@@ -273,3 +273,16 @@ a.kpi-btn { text-decoration: none; color: inherit; display: block; }
 .wn-head { display: flex; justify-content: space-between; gap: .6rem; flex-wrap: wrap; align-items: baseline; }
 .wn-rel ul { margin: .4rem 0 0; padding-left: 1.1rem; font-size: .88rem; }
 .wn-rel li { margin: .25rem 0; }
+.el.el-na { opacity: .6; }
+.el.el-na .pill { white-space: nowrap; }
+.db-more { margin-top: .5rem; border-top: 1px dashed var(--line); padding-top: .4rem; }
+.db-more > summary { cursor: pointer; font-size: .82rem; color: var(--accent, #1f4e79); font-weight: 600; padding: .3rem 0; list-style: none; }
+.db-more > summary::-webkit-details-marker { display: none; }
+.db-more > summary::before { content: '\25B8'; display: inline-block; margin-right: .4rem; transition: transform .15s; }
+.db-more[open] > summary::before { transform: rotate(90deg); }
+.db-detail { padding: .3rem 0 .2rem; }
+.db-sec { margin-bottom: .6rem; }
+.db-detail blockquote { margin: .25rem 0; padding: .35rem .6rem; border-left: 3px solid var(--line); background: rgba(0,0,0,.025); }
+.db-els, .db-qs { margin: .3rem 0 0; padding-left: 1.1rem; }
+.db-els li, .db-qs li { margin-bottom: .3rem; line-height: 1.4; }
+@media print { .db-more { display: none; } }

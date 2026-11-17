@@ -49,8 +49,31 @@
       }, 500);
     };
     const graded = () => tasks.filter((t) => d.results[t.key] && d.results[t.key].grade).length;
+    // Expandable task detail: the quoted standard for what was planned, so the examiner can grade against it.
+    const openK = new Set();
+    const LEAD = { K: 'Knowledge — the applicant demonstrates understanding of:', R: 'Risk management — the applicant is able to identify, assess, and mitigate risk associated with:', S: 'Skills — the applicant exhibits the skill to:', O: 'Objective — the applicant:' };
+    const elText = {};
+    const detail = (t, ct) => {
+      const codes = E.elementCodes(doc, t.area, t.task); const sel = new Set(ct.elements || []);
+      const rows = t.task.elements.map((e, i) => ({ e, ref: codes[i] })).filter((x) => sel.has(x.ref));
+      rows.forEach(({ e, ref }) => { elText[ref] = e.text; });
+      const parentOf = (e) => e.sub ? t.task.elements.find((x) => x.type === e.type && x.num === e.num && !x.sub) : null;
+      const groups = ['K', 'R', 'S', 'O'].map((ty) => ({ ty, list: rows.filter((x) => x.e.type === ty) })).filter((g) => g.list.length);
+      const qsT = (p.content.questions || []).filter((x) => x.task === t.key || (!x.task && x.ref && codes.includes(x.ref)));
+      const notes = Array.isArray(t.task.notes) ? t.task.notes : t.task.notes ? [t.task.notes] : [];
+      return `<div class="db-detail">
+        ${t.task.objective ? `<div class="db-sec"><div class="xs strong">Objective</div><blockquote class="sm">${esc(t.task.objective)}</blockquote></div>` : ''}
+        ${t.task.quick ? `<div class="db-sec"><span class="pill info">Examiner tolerance summary</span> <span class="sm">${esc(t.task.quick)}</span>${t.task.quick_src === 'examiner' ? ' <span class="xs muted">(examiner practice; this task has no ACS numeric tolerance)</span>' : ''}</div>` : ''}
+        ${t.task.references ? `<div class="db-sec"><div class="xs strong">References</div><div class="sm">${esc(t.task.references)}</div></div>` : ''}
+        ${notes.length ? `<div class="db-sec"><div class="xs strong">Task notes</div>${notes.map((n) => `<blockquote class="sm">${esc(typeof n === 'string' ? n : n.text || '')}</blockquote>`).join('')}</div>` : ''}
+        ${groups.length ? groups.map((g) => `<div class="db-sec"><div class="xs strong">${esc(LEAD[g.ty])}</div><ul class="db-els">${g.list.map(({ e, ref }) => { const par = parentOf(e); const na = !E.elementApplies(doc, t.task, e, p.test_profile.cls);
+          return `<li><span class="mono xs">${esc(ref)}</span> ${par ? `<span class="muted sm">${esc(par.text)} </span>` : ''}<span class="sm">${esc(e.text)}</span>${na ? ' <span class="pill warn">Not for ' + esc(p.test_profile.cls) + ' — not graded</span>' : ''}</li>`; }).join('')}</ul></div>`).join('') : '<div class="sm muted">No elements were selected for this task.</div>'}
+        ${qsT.length ? `<div class="db-sec"><div class="xs strong">Planned questions (${qsT.length})</div><ol class="db-qs">${qsT.map((x) => `<li class="sm">${esc(x.prompt)}${x.expected ? `<div class="xs muted">Expected: ${esc(x.expected)}</div>` : ''}</li>`).join('')}</ol></div>` : ''}
+        <div class="xs muted">Quoted from ${doc.url ? `<a href="${esc(doc.url)}" target="_blank" rel="noopener">${esc(doc.num)}</a>` : esc(doc.num)}. Grade against the current FAA document.</div></div>`;
+    };
     const elapsed = (iso) => { if (!iso) return '—'; const s = Math.max(0, Math.floor((Date.now() - new Date(iso)) / 1000)); return String(Math.floor(s / 3600)).padStart(2, '0') + ':' + String(Math.floor(s / 60) % 60).padStart(2, '0'); };
     const render = () => {
+      tasks.forEach((t) => { const cs = E.elementCodes(doc, t.area, t.task); t.task.elements.forEach((e, i) => { elText[cs[i]] = e.text; }); });
       const byArea = []; tasks.forEach((t) => { let a = byArea.find((x) => x.area === t.area); if (!a) byArea.push(a = { area: t.area, list: [] }); a.list.push(t); });
       const g = graded();
       c.innerHTML = head('Checkride debrief', `${esc(p.title)} · ${esc(doc.num)}${app ? ' · ' + esc(app.first_name + ' ' + app.last_name) : ''}`,
@@ -62,12 +85,14 @@
           <div class="timer"><span class="xs muted">Flight</span> <b id="tf">${elapsed(d.flight_start)}</b> ${locked ? '' : `<button class="btn ghost sm" id="sf">${d.flight_start ? 'Restart' : 'Start'}</button>`}</div>
           <label style="margin:0;max-width:150px">Oral (minutes)<input id="om" inputmode="numeric" value="${esc(d.oral_minutes)}" ${locked ? 'disabled' : ''}></label><label style="margin:0;max-width:150px">Flight (hours)<input id="fh" inputmode="decimal" value="${esc(d.flight_hours)}" ${locked ? 'disabled' : ''}></label>
           <span style="flex:1"></span><span class="xs muted" id="dbSave">${navigator.onLine ? '' : 'Offline — changes stay on this device'}</span></div></div>
+        <div class="btn-row" style="justify-content:flex-end;margin:-.2rem 0 .6rem"><button type="button" class="btn ghost sm" id="dbExp">${openK.size >= tasks.length ? 'Collapse all' : 'Expand all'}</button></div>
         ${byArea.map(({ area, list }) => `<div class="card"><h2><span class="mono muted">${area.roman}.</span> ${esc(area.title)}</h2>${list.map((t) => {
           const r = d.results[t.key] || {}; const ct = p.content.tasks[t.key];
           const codes = (ct.elements || []);
           return `<div class="db-task" data-k="${t.key}"><div class="task-row"><span class="tl">${t.key}</span><div class="tt"><div class="sm strong">${esc(t.task.title)}</div><div class="xs muted">${esc({ oral: 'Oral', flight: 'Flight', both: 'Oral and flight' }[ct.method] || '')} · ${codes.length} element(s)</div></div>
             <div class="grade" role="group" aria-label="Grade">${['S', 'U', 'NT'].map((x) => `<button type="button" class="g-${x} ${r.grade === x ? 'on' : ''}" data-g="${x}" ${locked ? 'disabled' : ''}>${x === 'NT' ? 'Not tested' : x === 'S' ? 'Sat' : 'Unsat'}</button>`).join('')}</div></div>
-            ${r.grade === 'U' ? `<div class="xs muted" style="margin:.4rem 0 .2rem">Tap the element(s) that were not met (these go on the Notice of Disapproval):</div><div class="chips">${codes.map((x) => `<button type="button" class="chip ${(r.codes || []).includes(x) ? 'on' : ''}" data-c="${esc(x)}" ${locked ? 'disabled' : ''}>${esc(x)}</button>`).join('')}</div>` : ''}
+            ${r.grade === 'U' ? `<div class="xs muted" style="margin:.4rem 0 .2rem">Tap the element(s) that were not met (these go on the Notice of Disapproval):</div><div class="chips">${codes.map((x) => `<button type="button" class="chip ${(r.codes || []).includes(x) ? 'on' : ''}" data-c="${esc(x)}" title="${esc(elText[x] || '')}" ${locked ? 'disabled' : ''}>${esc(x)}</button>`).join('')}</div>` : ''}
+            <details class="db-more" data-k="${t.key}" ${openK.has(t.key) ? 'open' : ''}><summary>Standards, elements and questions</summary>${detail(t, ct)}</details>
             ${r.grade || r.note ? `<input class="note" placeholder="Note" value="${esc(r.note)}" ${locked ? 'disabled' : ''} style="margin:.45rem 0 0">` : ''}</div>`;
         }).join('')}</div>`).join('')}
         <div class="card"><h2>Outcome</h2><div class="form-grid">${Object.entries(OUTCOME).map(([k, v]) => `<label class="check sm"><input type="radio" name="oc" value="${k}" ${d.outcome === k ? 'checked' : ''} ${locked ? 'disabled' : ''}><span>${esc(v)}</span></label>`).join('')}</div>
@@ -78,6 +103,8 @@
       bind();
     };
     const bind = () => {
+      qsa('details.db-more', c).forEach((dt) => dt.addEventListener('toggle', () => { dt.open ? openK.add(dt.dataset.k) : openK.delete(dt.dataset.k); const b = qs('#dbExp', c); if (b) b.textContent = openK.size >= tasks.length ? 'Collapse all' : 'Expand all'; }));
+      const ex = qs('#dbExp', c); if (ex) ex.onclick = () => { const all = openK.size < tasks.length; tasks.forEach((t) => all ? openK.add(t.key) : openK.delete(t.key)); const y = window.scrollY; render(); window.scrollTo(0, y); };
       if (locked) return;
       qs('#mode', c).onchange = (e) => { d.entry_mode = e.target.value; save(); };
       qs('#tdate', c).onchange = (e) => { d.test_date = e.target.value; save(); };

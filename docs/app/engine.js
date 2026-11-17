@@ -23,6 +23,19 @@
     return { doc };
   }
 
+  // Element-level class tags such as "(ASES, AMES)" mark items that apply only to some classes of airplane
+  // inside tasks that otherwise apply to all classes. A sub-element without its own tag inherits its parent's.
+  const CLS_TAG = /\((?:\s*(?:ASEL|AMEL|ASES|AMES)\s*(?:,|\/|and|or)?\s*)+\)/g;
+  function elementClasses(task, e) {
+    const tags = (t) => { const out = new Set(); (String(t || '').match(CLS_TAG) || []).forEach((m) => (m.match(/ASEL|AMEL|ASES|AMES/g) || []).forEach((x) => out.add(x))); return out; };
+    let set = tags(e.text);
+    if (!set.size && e.sub) { const par = task.elements.find((x) => x.type === e.type && x.num === e.num && !x.sub); if (par) set = tags(par.text); }
+    return set.size ? Array.from(set) : null;
+  }
+  function elementApplies(doc, task, e, cls) {
+    if (!cls || !doc || doc.category !== 'airplane') return true;
+    const c = elementClasses(task, e); return !c || c.includes(cls);
+  }
   function taskKey(area, task) { return area.roman + '.' + task.letter; }
   function elementCodes(doc, area, task) {
     // PTS objective items have no FAA codes; synthesize stable local references.
@@ -102,7 +115,8 @@
     const aktr = new Set((opts.aktr || []).map((c) => c.trim().toUpperCase()));
     const usage = opts.usage || {};
     const rand = opts.rand || Math.random;
-    const els = task.elements.map((e, i) => Object.assign({}, e, { ref: codes[i] }));
+    const aktrAll = new Set((opts.aktr || []).map((c) => c.trim().toUpperCase()));
+    const els = task.elements.map((e, i) => Object.assign({}, e, { ref: codes[i] })).filter((e) => elementApplies(doc, task, e, opts.cls) || aktrAll.has(e.ref.toUpperCase()));
     const sel = new Set();
     const why = {};
     if (doc.kind === 'PTS') {
@@ -274,8 +288,12 @@
       req.length + ' required tasks across ' + new Set(req.map((t) => t.area.roman)).size + ' Areas of Operation; ' + (req.length - missing.length) + ' included.');
     if (isACS && doc.category === 'airplane') {
       const wrong = Array.from(included).map((k) => ctx.tasks.find((t) => t.key === k)).filter((t) => t && t.task.classes && !t.task.classes.includes(profile.cls));
-      push('class', 'acs_class', doc.num + ', Introduction', stdUrl, wrong.length ? 'review' : 'met',
-        'Class used for the test: ' + profile.cls + '. ' + (wrong.length ? wrong.length + ' included task(s) belong to another class: ' + wrong.map((t) => t.key).join(', ') + '.' : 'Class-specific tasks match the class airplane.'));
+      const wrongEl = [];
+      included.forEach((k) => { const t = ctx.tasks.find((x) => x.key === k); if (!t) return; const sel = new Set(content.tasks[k].elements || []); const codes = elementCodes(doc, t.area, t.task);
+        t.task.elements.forEach((e, i) => { if (sel.has(codes[i]) && !elementApplies(doc, t.task, e, profile.cls)) wrongEl.push(codes[i]); }); });
+      push('class', 'acs_class', doc.num + ', Introduction', stdUrl, wrong.length || wrongEl.length ? 'review' : 'met',
+        'Class used for the test: ' + profile.cls + '. ' + (wrong.length ? wrong.length + ' included task(s) belong to another class: ' + wrong.map((t) => t.key).join(', ') + '. ' : 'Class-specific tasks match the class airplane. ') +
+        (wrongEl.length ? wrongEl.length + ' selected element(s) apply only to another class and should be removed: ' + wrongEl.join(', ') + '.' : 'No selected elements are marked for another class.'));
     }
     if (doc.cfi_matrix && profile.cert === 'cfi') {
       const m = cfiMatrix(doc, profile);
@@ -414,6 +432,6 @@
     ].join('\n'),
   };
 
-  root.SPE = { CLASS_LABEL, CERT_LABEL, PURPOSE_LABEL, HELD_OPTIONS, resolveStandard, requiredTasks, selectElements, elementCodes, taskKey,
+  root.SPE = { elementClasses, elementApplies, CLASS_LABEL, CERT_LABEL, PURPOSE_LABEL, HELD_OPTIONS, resolveStandard, requiredTasks, selectElements, elementCodes, taskKey,
     missionsFor, scenarioProfile, cfiMatrix, TRIGGERS, triggersFor, triggerCovers, scenarioCoverage, questionFor, complianceChecks, DEFAULT_BRIEFINGS, categoryOfClass, similarity };
 })(typeof window !== 'undefined' ? window : globalThis);

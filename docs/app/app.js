@@ -507,7 +507,7 @@
       const tasks = E.requiredTasks(r.doc, prof, { usage });
       if (r.doc.cfi_matrix && prof.cert === 'cfi') prof.cfiPicks = tasks.filter((t) => t.required).map((t) => t.key);
       const content = { tasks: {}, scenario: { triggers: [] }, briefings: {}, questions: [], eligibility: {}, attest: {}, aktr };
-      tasks.forEach((t) => { const s = E.selectElements(r.doc, t.area, t.task, { aktr, usage }); content.tasks[t.key] = { included: t.required, elements: t.required ? s.selected : [], why: s.why, method: defaultMethod(t), excludeReason: '' }; });
+      tasks.forEach((t) => { const s = E.selectElements(r.doc, t.area, t.task, { aktr, usage, cls: prof.cls }); content.tasks[t.key] = { included: t.required, elements: t.required ? s.selected : [], why: s.why, method: defaultMethod(t), excludeReason: '' }; });
       Object.keys(E.DEFAULT_BRIEFINGS).forEach((k) => content.briefings[k] = (((orgSt.briefings || {})[k]) || E.DEFAULT_BRIEFINGS[k]).replace(/\{std\}/g, r.doc.num));
       const sp = E.scenarioProfile(orgSt, prof.cert);
       if (cr) { content.scenario.dep = cr.departure_airport || ''; content.checkride = { id: cr.id, test_type: cr.test_type, basis: cr.basis, preapproval_number: cr.preapproval_number, scheduled_at: cr.scheduled_at, aircraft: cr.aircraft_make_model, tail: cr.tail_number, notes: cr.notes }; }
@@ -620,7 +620,10 @@
       const byArea = [];
       tasks.forEach((t) => { let a = byArea.find((x) => x.area === t.area); if (!a) byArea.push(a = { area: t.area, list: [] }); a.list.push(t); });
       const inc = tasks.filter((t) => content.tasks[t.key] && content.tasks[t.key].included).length;
-      el.innerHTML = `<div class="banner info">Required tasks are pre-selected from <b>${esc(doc.num)}</b>. ${doc.kind === 'ACS' ? 'For each task smartPOA selects every skill element, any knowledge-test (AKTR) deficiencies, and at least one knowledge and one risk management element, rotating toward elements you have used least.' : 'PTS objective items are all selected.'} ${inc} task(s) included.</div>
+      const otherCls = [];
+      tasks.forEach((t) => { const ct = content.tasks[t.key]; if (!ct || !ct.included) return; const cs = E.elementCodes(doc, t.area, t.task); const sel = new Set(ct.elements || []);
+        t.task.elements.forEach((e, i) => { if (sel.has(cs[i]) && !aktr.has(cs[i].toUpperCase()) && !E.elementApplies(doc, t.task, e, p.test_profile.cls)) otherCls.push({ k: t.key, ref: cs[i] }); }); });
+      el.innerHTML = (otherCls.length ? `<div class="banner warn">${otherCls.length} selected element(s) apply only to another class of airplane, not ${esc(p.test_profile.cls)}: <span class="mono">${esc(otherCls.map((x) => x.ref).join(', '))}</span>. ${editable ? '<button class="btn sm" id="rmOther" style="margin-left:.4rem">Remove them and their questions</button>' : 'Create a revision to remove them.'}</div>` : '') + `<div class="banner info">Required tasks are pre-selected from <b>${esc(doc.num)}</b>. ${doc.kind === 'ACS' ? 'For each task smartPOA selects every skill element, any knowledge-test (AKTR) deficiencies, and at least one knowledge and one risk management element, rotating toward elements you have used least.' : 'PTS objective items are all selected.'} ${inc} task(s) included.</div>
         <div class="btn-row" style="margin-bottom:.7rem"><button class="btn ghost sm" id="exAll">Expand all</button><button class="btn ghost sm" id="coAll">Collapse all</button>${editable && doc.kind === 'ACS' ? '<button class="btn ghost sm" id="resample">Re-sample K and R elements</button>' : ''}<label class="check sm" style="margin:0 0 0 .5rem"><input type="checkbox" id="showEx"> Show tasks not required</label></div>
         ${byArea.map(({ area, list }) => {
           const reqN = list.filter((t) => t.required).length;
@@ -639,11 +642,13 @@
               ${t.required && !ct.included ? `<label class="xs" style="margin:.35rem 0 0">Reason for leaving out (shown on the proof form)<input class="exr" ${dis} value="${esc(ct.excludeReason)}"></label>` : ''}</div>
               <div class="seg" role="group" aria-label="Method">${['oral', 'flight', 'both'].map((m) => `<button type="button" data-m="${m}" class="${ct.method === m ? 'on' : ''}" ${dis}>${m === 'both' ? 'Both' : m === 'oral' ? 'Oral' : 'Flight'}</button>`).join('')}</div></div>
               <details class="els-d" ${ct.included ? '' : ''}><summary class="xs muted" style="margin:.35rem 0 0 3.8rem;cursor:pointer">${sel.size} of ${t.task.elements.length} elements selected</summary><div class="els">
-              ${t.task.elements.map((e, i) => { const ref = codes[i]; const isA = aktr.has(ref.toUpperCase()); return `<label class="el t-${e.type}"><input type="checkbox" class="elc" data-ref="${esc(ref)}" ${sel.has(ref) ? 'checked' : ''} ${dis || (!ct.included ? 'disabled' : '')}><span class="code">${esc(ref)}</span><span style="flex:1${e.sub ? ';padding-left:.8rem' : ''}">${esc(e.text)}</span>${isA ? '<span class="pill bad">AKTR</span>' : ct.why && ct.why[ref] && sel.has(ref) ? `<span class="why">${esc(ct.why[ref])}</span>` : ''}</label>`; }).join('')}
+              ${t.task.elements.map((e, i) => { const ref = codes[i]; const isA = aktr.has(ref.toUpperCase()); const na = !E.elementApplies(doc, t.task, e, p.test_profile.cls); return `<label class="el t-${e.type}${na ? ' el-na' : ''}"><input type="checkbox" class="elc" data-ref="${esc(ref)}" ${sel.has(ref) ? 'checked' : ''} ${dis || (!ct.included || (na && !sel.has(ref)) ? 'disabled' : '')}><span class="code">${esc(ref)}</span><span style="flex:1${e.sub ? ';padding-left:.8rem' : ''}">${esc(e.text)}</span>${na ? `<span class="pill ${sel.has(ref) ? 'bad' : ''}">${sel.has(ref) ? 'Other class — remove' : esc(E.elementClasses(t.task, e).join(', ')) + ' only'}</span>` : isA ? '<span class="pill bad">AKTR</span>' : ct.why && ct.why[ref] && sel.has(ref) ? `<span class="why">${esc(ct.why[ref])}</span>` : ''}</label>`; }).join('')}
               </div></details></div>`;
           }).join('')}</div></div>`;
         }).join('')}`;
       qsa('.area-head', el).forEach((h) => h.onclick = () => { const b = h.nextElementSibling; b.style.display = b.style.display === 'none' ? '' : 'none'; });
+      const rmo = qs('#rmOther', el); if (rmo) rmo.onclick = () => { const bad = new Set(otherCls.map((x) => x.ref)); otherCls.forEach((x) => { const ct = content.tasks[x.k]; ct.elements = (ct.elements || []).filter((r) => !bad.has(r)); if (ct.why) delete ct.why[x.ref]; });
+        content.questions = (content.questions || []).filter((x) => !bad.has(x.ref)); save(); toast(bad.size + ' element(s) removed'); paneTasks(el); };
       qs('#exAll', el).onclick = () => qsa('.area-body', el).forEach((b) => b.style.display = '');
       qs('#coAll', el).onclick = () => qsa('.area-body', el).forEach((b) => b.style.display = 'none');
       qs('#showEx', el).onchange = (e) => qsa('[data-optional]', el).forEach((t) => t.style.display = e.target.checked ? '' : 'none');
@@ -654,7 +659,7 @@
         const ct = content.tasks[key] = content.tasks[key] || { included: false, elements: [], method: defaultMethod(t) };
         const inc = qs('.inc', tv); if (inc) inc.onchange = () => {
           ct.included = inc.checked;
-          if (ct.included && !(ct.elements || []).length) { const s = E.selectElements(doc, t.area, t.task, { aktr: content.aktr || [] }); ct.elements = s.selected; ct.why = s.why; }
+          if (ct.included && !(ct.elements || []).length) { const s = E.selectElements(doc, t.area, t.task, { aktr: content.aktr || [], cls: p.test_profile.cls }); ct.elements = s.selected; ct.why = s.why; }
           save(); const open = qs('.area-body', tv.closest('.area')).style.display; paneTasks(el); const ar = qs(`[data-area="${t.area.roman}"] .area-body`, el); if (ar) ar.style.display = open;
           const showEx = qs('#showEx', el); if (showEx) { showEx.checked = !t.required || showEx.checked; showEx.dispatchEvent(new Event('change')); }
         };
@@ -664,7 +669,7 @@
       });
       const rs = qs('#resample', el); if (rs) rs.onclick = async () => {
         const usage = await elementUsage();
-        tasks.forEach((t) => { const ct = content.tasks[t.key]; if (!ct || !ct.included) return; const s = E.selectElements(doc, t.area, t.task, { aktr: content.aktr || [], usage, rand: Math.random }); ct.elements = s.selected; ct.why = s.why; });
+        tasks.forEach((t) => { const ct = content.tasks[t.key]; if (!ct || !ct.included) return; const s = E.selectElements(doc, t.area, t.task, { aktr: content.aktr || [], usage, rand: Math.random, cls: p.test_profile.cls }); ct.elements = s.selected; ct.why = s.why; });
         save(); paneTasks(el); toast('Knowledge and risk elements re-sampled');
       };
     }

@@ -1,6 +1,41 @@
 {
-  "version": "0.2.4",
+  "version": "0.2.5",
   "releases": [
+    {
+      "version": "0.2.5",
+      "date": "2026-11-17",
+      "title": "Class-correct elements and expandable debrief",
+      "items": [
+        {
+          "text": "Plans of action now leave out elements marked for another class of airplane, such as water rudders or water spray items on a land plan, or multiengine-only items on a single-engine plan. Those elements show greyed out with the class they belong to.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        },
+        {
+          "text": "If an existing plan already has other-class elements, the Tasks step shows a warning with a button to remove them and their questions. Finalized plans need a revision first.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        },
+        {
+          "text": "On the checkride debrief, tap \"Standards, elements and questions\" under any task to see its objective, references, the quoted ACS wording for each planned element, and the planned questions. Expand all opens every task at once.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        },
+        {
+          "text": "When marking an element unsatisfactory, hold or hover on the code to see its ACS wording.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        }
+      ]
+    },
     {
       "version": "0.2.4",
       "date": "2026-11-17",
