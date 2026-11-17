@@ -52,6 +52,7 @@
     file: '<path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/>',
     cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
     flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
+    chat: '<path d="M4 5h16v11H8l-4 4z"/><path d="M8 9h8M8 12h5"/>',
     hist: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/>',
   };
   const icon = (k) => `<svg viewBox="0 0 24 24">${I[k] || ''}</svg>`;
@@ -200,17 +201,20 @@
     if (o && can('org_admin', 'auditor')) admin.push(['audit', 'Audit trail', 'shield']);
     admin.push(['settings', 'My profile', 'gear']);
     if (isOwner()) admin.push(['platform', 'Platform', 'shield']);
-    const link = (n) => `<a class="nav-item ${active === n[0] || (active === 'orgsettings' && n[0] === 'org-settings') ? 'active' : ''}" href="#/${n[0]}">${icon(n[2])}<span>${n[1]}</span>${n[0] === 'data-review' ? '<span class="nav-badge" id="flagBadge" hidden></span>' : ''}</a>`;
+    if (isOwner()) admin.push(['feedback', 'Feedback inbox', 'chat']);
+    const link = (n) => `<a class="nav-item ${active === n[0] || (active === 'orgsettings' && n[0] === 'org-settings') ? 'active' : ''}" href="#/${n[0]}">${icon(n[2])}<span>${n[1]}</span>${n[0] === 'data-review' ? '<span class="nav-badge" id="flagBadge" hidden></span>' : n[0] === 'feedback' ? '<span class="nav-badge" id="fbBadge" hidden></span>' : ''}</a>`;
     const orgs = S.ctx.orgs || [];
     $app.innerHTML = `<div class="layout"><aside class="sidebar" id="side">${brand('Flite Line Technologies')}
       ${orgs.length ? `<label class="org-switch">Organization<select id="orgSel">${orgs.map((x) => `<option value="${x.id}" ${x.id === S.orgId ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>` : ''}
       <nav class="nav">${nav.map(link).join('')}<div class="nav-sec">Administration</div>${admin.map(link).join('')}</nav>
       <div class="side-foot">${o ? esc(roles().map((r) => ROLE_LABEL[r]).join(' · ')) + '<br>' : ''}<a href="#" id="signout">Sign out</a> · v${esc(C.version)}</div></aside>
-      <div class="main"><div class="topbar"><button class="menu-btn" id="menuBtn" aria-label="Menu">☰</button><span class="sm strong">${esc(o ? o.name : 'smartPOA')}</span><span class="who">${esc((S.ctx.profile && (S.ctx.profile.full_name || S.ctx.profile.email)) || '')}</span></div>
+      <div class="main"><div class="topbar"><button class="menu-btn" id="menuBtn" aria-label="Menu">☰</button><span class="sm strong">${esc(o ? o.name : 'smartPOA')}</span><span class="who">${esc((S.ctx.profile && (S.ctx.profile.full_name || S.ctx.profile.email)) || '')}</span><button class="btn ghost sm fb-btn" id="fbBtn" type="button">${icon('chat')}<span>Feedback</span></button></div>
       <div class="content" id="content">${inner || '<div class="loading">Loading…</div>'}</div></div></div>`;
     const sel = qs('#orgSel'); if (sel) sel.onchange = () => { S.orgId = sel.value; localStorage.setItem('spoa_org', S.orgId); go('#/home'); };
     qs('#signout').onclick = (e) => { e.preventDefault(); signOut(); };
     qs('#menuBtn').onclick = () => qs('#side').classList.toggle('open');
+    qs('#fbBtn').onclick = () => window.SPOA.openFeedback && window.SPOA.openFeedback();
+    if (isOwner()) sb.from('feedback').select('id', { count: 'exact', head: true }).eq('status', 'new').then(({ count }) => { const b = qs('#fbBadge'); if (b && count) { b.textContent = count; b.hidden = false; } });
     if (o) sb.from('data_flags').select('id', { count: 'exact', head: true }).eq('org_id', S.orgId).eq('status', 'open').then(({ count }) => { const b = qs('#flagBadge'); if (b && count) { b.textContent = count; b.hidden = false; } });
     document.addEventListener('click', (e) => { const sd = qs('#side'); if (sd && sd.classList.contains('open') && !sd.contains(e.target) && e.target.id !== 'menuBtn') sd.classList.remove('open'); }, { once: true });
     return qs('#content');
