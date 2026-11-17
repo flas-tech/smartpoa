@@ -1,6 +1,55 @@
 {
-  "version": "0.2.6",
+  "version": "0.2.7",
   "releases": [
+    {
+      "version": "0.2.7",
+      "date": "2026-11-17",
+      "title": "Demonstration scenarios, per-element questions and appendix requirements",
+      "items": [
+        {
+          "text": "Task scenarios and sub-scenarios are now written so the applicant has to demonstrate the skill, and each one shows the element codes it covers.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        },
+        {
+          "text": "Questions are now planned per element: every selected knowledge and risk element, plus each skill element, gets its own question and expected answer.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        },
+        {
+          "text": "Choose 0, 1 or 2 questions per element, or Random. The second question is a follow-up that goes one step deeper on the first.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        },
+        {
+          "text": "Skill elements get a question asked right after the sub-scenario where the applicant demonstrated it.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        },
+        {
+          "text": "Approved bank questions are picked first; AI writes the rest and saves first questions to the bank as drafts for approval.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        },
+        {
+          "text": "Eligibility and compliance now lists the appendix requirements from the ACS or PTS that apply to the test, with test-condition toggles (FSTD, inoperative equipment, no published VMC, limitation removal and more). They print on the plan and appear in the proof of compliance.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        }
+      ]
+    },
     {
       "version": "0.2.6",
       "date": "2026-11-17",

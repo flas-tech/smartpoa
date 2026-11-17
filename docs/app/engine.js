@@ -362,6 +362,38 @@
     return inter / (a.size + b.size - inter);
   }
 
+  // ---------- appendix requirements (ACS appendices 1-3, PTS introduction) ----------
+  const AP_FLAGS = {
+    instr: 'The test includes flight solely by reference to instruments',
+    inop: 'The aircraft has inoperative equipment (14 CFR 91.213)',
+    novmc: 'The multiengine airplane does not publish a VMC',
+    me_heli: 'The applicant provides a multiengine helicopter',
+    fstd: 'All or part of the test is in a flight simulation training device (FSTD)',
+    fstd_credit: 'The applicant credits FSTD time toward aeronautical experience',
+    atd_credit: 'The applicant credits aviation training device (ATD) time toward aeronautical experience',
+    combined: 'Combined private pilot certificate and instrument rating test',
+    limitation: 'The test is to remove a limitation (for example multiengine VFR only, center thrust, or SIC required)',
+  };
+  function appendixFor(doc, ctx) {
+    // ctx: { profile, content, tasks }. Returns the items that apply, the conditions the examiner can set, and their values.
+    const items = doc.appendix_items || []; const prof = ctx.profile || {}; const content = ctx.content || {};
+    const a = content.appendix || {}; const set = a.flags || {};
+    const inc = new Set(Object.keys(content.tasks || {}).filter((k) => content.tasks[k].included));
+    const incTasks = (ctx.tasks || []).filter((t) => inc.has(t.key));
+    const auto = { instr: /instrument|atp|cfii/i.test(doc.cert || '') || incTasks.some((t) => /instrument/i.test((t.task.title || '') + ' ' + (t.area.title || ''))) };
+    const val = Object.assign({}, auto); Object.keys(set).forEach((k) => { if (set[k] != null) val[k] = !!set[k]; });
+    const avail = new Set(); const out = [];
+    items.forEach((it) => {
+      const w = it.when || {};
+      if (w.cls && !w.cls.includes(prof.cls)) return;
+      if (w.purpose && !w.purpose.includes(prof.purpose)) return;
+      if (it.tasks && !it.tasks.some((k) => inc.has(k))) return;
+      if (w.flag) { const f = w.flag === 'atd' ? 'atd_credit' : w.flag; avail.add(f); if (!val[f]) return; }
+      out.push(it);
+    });
+    return { items: out, flags: Object.keys(AP_FLAGS).filter((k) => avail.has(k)), values: val, auto, ack: a.ack || {} };
+  }
+
   function complianceChecks(ctx) {
     // ctx: { doc, profile, tasks(requiredTasks with .selected/.included), content, priorPoas[], aktr[], regs, docStatus, eligibility }
     const { doc, profile, content } = ctx;
@@ -435,8 +467,15 @@
     push('scenario', 'o895d_ms_ii', 'FAA Order 8000.95E', null, !hasMission ? 'gap' : pct >= 50 ? 'met' : 'review',
       hasMission ? 'Scenario with ' + ((content.scenario.triggers || []).length) + ' planned event(s) covers ' + cov.covered.length + ' of ' + cov.total + ' required tasks (' + pct + '%).' : 'No scenario written yet.');
     const qs = content.questions || [];
-    const scen = qs.filter((q) => q.portion === 'scenario' || /scenario/i.test(q.prompt)).length;
-    push('sbt', 'o895d_pm_c', 'FAA Order 8000.95E', null, qs.length && scen ? 'met' : 'review', qs.length + ' planned question(s)/prompts; ' + scen + ' scenario-based.');
+    const tsc = Object.values((content.scenario || {}).taskScenarios || {}).filter((x) => String(x || '').trim()).length;
+    const scen = tsc + qs.filter((q) => q.portion === 'scenario').length;
+    push('sbt', 'o895d_pm_c', 'FAA Order 8000.95E', null, qs.length && scen ? 'met' : 'review', qs.length + ' planned question(s) with expected answers; ' + tsc + ' task scenario(s) for the applicant to demonstrate.');
+    const apx = appendixFor(doc, ctx);
+    if (apx.items.length) {
+      const open = apx.items.filter((it) => !apx.ack[it.id]);
+      push('appendix', null, doc.num + (isACS ? ', Appendices 1-3' : ', Introduction and checklists'), doc.url, open.length ? 'review' : 'attested',
+        apx.items.length + ' appendix requirement(s) apply to this test; ' + (apx.items.length - open.length) + ' confirmed by the examiner.' + (open.length ? ' Confirm the rest on Eligibility and compliance.' : ''));
+    }
     const b = content.briefings || {};
     const bOk = ['pretest', 'preflight', 'postflight'].filter((k) => b[k] && b[k].trim().length > 20);
     push('brief', 'o895d_ms_iii', 'FAA Order 8000.95E', null, bOk.length === 3 ? 'met' : 'gap', 'Briefings present: ' + (bOk.length ? bOk.join(', ') : 'none') + '.');
@@ -531,6 +570,6 @@
     ].join('\n'),
   };
 
-  root.SPE = { KT_CATALOG, ktTests, ktCode, ktValidUntil, ktExpected, ktCheck, ruleSet, elementClasses, elementApplies, CLASS_LABEL, CERT_LABEL, PURPOSE_LABEL, HELD_OPTIONS, resolveStandard, requiredTasks, selectElements, elementCodes, taskKey,
+  root.SPE = { AP_FLAGS, appendixFor, KT_CATALOG, ktTests, ktCode, ktValidUntil, ktExpected, ktCheck, ruleSet, elementClasses, elementApplies, CLASS_LABEL, CERT_LABEL, PURPOSE_LABEL, HELD_OPTIONS, resolveStandard, requiredTasks, selectElements, elementCodes, taskKey,
     missionsFor, scenarioProfile, cfiMatrix, TRIGGERS, triggersFor, triggerCovers, scenarioCoverage, questionFor, complianceChecks, DEFAULT_BRIEFINGS, categoryOfClass, similarity };
 })(typeof window !== 'undefined' ? window : globalThis);

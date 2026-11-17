@@ -103,30 +103,40 @@ Aircraft make and model: ${clip(p.aircraft, 60) || "the test aircraft"}`;
       return j({ text: r.content, model: MODEL }, 200, h);
     }
     if (kind === "task_scenarios") {
-      const tasks = (Array.isArray(body.payload?.tasks) ? body.payload.tasks : []).slice(0, 14).map((t: any) => ({ key: clip(t.key, 12), title: clip(t.title, 120), method: clip(t.method, 10), elements: (Array.isArray(t.elements) ? t.elements : (Array.isArray(t.skills) ? t.skills : [])).slice(0, 14).map((x: any) => clip(x, 220)) }));
+      const tasks = (Array.isArray(body.payload?.tasks) ? body.payload.tasks : []).slice(0, 14).map((t: any) => ({ key: clip(t.key, 12), title: clip(t.title, 120), method: clip(t.method, 10), elements: (Array.isArray(t.elements) ? t.elements : (Array.isArray(t.skills) ? t.skills : [])).slice(0, 20).map((x: any) => clip(x, 220)) }));
       if (!tasks.length) return j({ items: [] }, 200, h);
-      const sys = `You write task scenarios for an FAA checkride plan of action. For EVERY task given, write:
-1. "text": a task scenario (2-3 sentences) set inside the master scenario, at the right phase (planning or preflight for oral tasks, the matching flight phase for flight tasks), that leads the applicant into the task without restating the elements word for word.
-2. "subs": 2 or 3 sub-scenarios (1-2 sentences each). Each one is a follow-up development or "what if" branch that changes one condition (for example equipment, weather trend, ATC, passenger, performance, a risk factor) and draws out a different element listed for the task. Each ends with a prompt such as "What would you do?", "Explain how you would...", or "How does this change your plan?", varying wording.
-Address the applicant as "you" about 70% of the time and "the applicant" 30%. Stay consistent with the master scenario's aircraft, airports and story. No unrealistic drama. Use generalized weather. ${DISCLAIM} ${styleLine(s)} Return only a JSON array of objects {"key": task key, "text": task scenario, "subs": [sub-scenario strings]}.`;
-      const usr = `Master scenario (context only): ${clip(body.payload?.master, 1500)}\nTasks (elements are K = knowledge, R = risk, S = skill):\n${JSON.stringify(tasks)}`;
-      const r = await grok(key, sys, usr, Math.min(9000, 500 * tasks.length + 800), temp(s, 0.5));
-      const items = parseJsonArray(r.content).map((x: any) => ({ key: clip(x.key, 12), text: clip(x.text, 900), subs: (Array.isArray(x.subs) ? x.subs : []).slice(0, 4).map((y: any) => clip(y, 600)).filter(Boolean) })).filter((x: any) => x.key && x.text);
+      const sys = `You write task scenarios for an FAA checkride plan of action. The purpose of every scenario is to make the applicant DEMONSTRATE the task by doing it, not describe it. Each element line is "TYPE CODE: text" where S = skill, K = knowledge, R = risk management.
+For EVERY task given, write:
+1. "text": a task scenario (2-3 sentences) set inside the master scenario at the right phase. Create a concrete operational need that the applicant can only meet by performing the task. Flight tasks: give a real reason to fly the maneuver or procedure in the aircraft (for example a short runway with an obstacle calls for a short-field landing, traffic on the runway calls for a go-around, the examiner's simulated engine failure calls for the emergency approach and landing). Oral and planning tasks: require the applicant to produce a result with the real materials, such as compute performance or weight and balance, plan or brief, find and show an item in the logbooks or POH/AFM, or make and justify a go or no-go decision. End with a direct instruction for what the applicant must now do. Put the skill element codes this scenario requires in "codes".
+2. "subs": 2 or 3 sub-scenarios (1-2 sentences each). Each changes one condition during the task (wind, weight, runway, equipment, ATC, traffic, a passenger, a risk factor) so the applicant must adjust and demonstrate specific skill elements; put those codes in "codes". Between the task scenario and its subs, require every skill element listed for the task. When a task has no skill elements, make the applicant apply the listed knowledge and risk elements to a decision they must make and act on, and list those codes.
+Do not copy element text word for word. Emergencies and failures are simulated by the examiner as the standard allows; never require an unsafe action. Address the applicant as "you" about 70% of the time and "the applicant" 30%. Stay consistent with the master scenario's aircraft, airports and story. Use generalized weather. ${DISCLAIM} ${styleLine(s)} Return only a JSON array of objects {"key": task key, "text": string, "codes": [element codes], "subs": [{"text": string, "codes": [element codes]}]}.`;
+      const usr = `Master scenario (context only): ${clip(body.payload?.master, 1500)}\nTasks:\n${JSON.stringify(tasks)}`;
+      const r = await grok(key, sys, usr, Math.min(9000, 600 * tasks.length + 800), temp(s, 0.5));
+      const codes = (v: any) => (Array.isArray(v) ? v : []).slice(0, 20).map((c: any) => clip(c, 24)).filter(Boolean);
+      const items = parseJsonArray(r.content).map((x: any) => ({ key: clip(x.key, 12), text: clip(x.text, 900), codes: codes(x.codes), subs: (Array.isArray(x.subs) ? x.subs : []).slice(0, 4).map((y: any) => typeof y === "string" ? { text: clip(y, 600), codes: [] } : { text: clip(y?.text, 600), codes: codes(y?.codes) }).filter((y: any) => y.text) })).filter((x: any) => x.key && x.text);
       await log(true, r.usage);
       return j({ items, model: MODEL }, 200, h);
     }
     if (kind === "questions") {
-      const els = (Array.isArray(body.payload?.elements) ? body.payload.elements : []).slice(0, 40).map((e: any) => ({ code: clip(e.code, 24), type: clip(e.type, 2), description: clip(e.text, 400), references: clip(e.references, 300), level: clip(e.level, 8), task: clip(e.task, 12) }));
+      const els = (Array.isArray(body.payload?.elements) ? body.payload.elements : []).slice(0, 30).map((e: any) => {
+        const mode = ["single", "pair", "follow"].includes(e.mode) ? e.mode : "single";
+        const o: any = { code: clip(e.code, 24), type: clip(e.type, 2), description: clip(e.text, 400), references: clip(e.references, 300), task: clip(e.task, 12), mode };
+        if (e.scenario) o.scenario = clip(e.scenario, 700);
+        if (mode === "follow") { o.firstQuestion = clip(e.firstQuestion, 600); o.firstExpected = clip(e.firstExpected, 900); }
+        return o;
+      });
       if (!els.length) return j({ items: [] }, 200, h);
-      const sys = `You write oral-exam questions and expected answers for an FAA practical test, aligned with the Airman Certification Standards. For each element write one concise question (1 sentence) focusing on a single action or decision, derived from the element and its task references, and an expected answer (2-3 sentences) that cites a specific reference. Vary phrasing across questions.
-Knowledge (K) and AKTR elements: no scenario context; test factual understanding.
-Risk management (R) elements: no scenario context; ask about the risk's impact and mitigation.
-Skill (S) elements: ask the applicant to explain how they would perform or evaluate the skill.
-When an element has a "level", write the question at that level: "easy" = a softball recall or definition question; "medium" = applying the knowledge to a normal situation; "hard" = a scenario-based correlation question with a changing condition or a what-if that requires judgment. The same element code may appear more than once with different levels; return one item per input, in order, and include "level".
+      const sys = `You write oral-exam questions and expected answers for an FAA practical test, aligned with the Airman Certification Standards. Every question must test the specific element given (its code and description), not the task in general.
+Knowledge (K) elements: test understanding of that element. Risk management (R) elements: ask the applicant to identify, assess and mitigate that specific risk. AKTR (A) elements: the applicant missed this area on the knowledge test, so confirm the knowledge was corrected. Skill (S) elements: the applicant has just performed this skill in the given "scenario" (a task scenario or sub-scenario); ask a follow-up about what they just did, such as why they chose that action, what standard or tolerance applied, what cue told them to act, or what they would change. Refer to the scenario; do not ask them to perform it again. The expected answer names the correct technique and the acceptable performance.
+Each item has a "mode":
+- "single": write one question (1-2 sentences) and its expected answer.
+- "pair": write the first question and a follow-up. The follow-up builds on the expected answer to the first, going one step deeper: apply it to the test flight, change one condition, or ask why or what if. It must still test the same element.
+- "follow": the first question and its expected answer are given; write only the follow-up as described above, returned in "question" and "expectedAnswer".
+Expected answers are 2-3 sentences and cite a specific reference (14 CFR section, AIM paragraph, handbook or AC). Vary phrasing.
 Difficulty: ${clip(body.payload?.difficulty, 400)}
-${DISCLAIM} ${styleLine(s)} Return only a JSON array of objects {"code", "level", "question", "expectedAnswer"}.`;
-      const r = await grok(key, sys, JSON.stringify(els), Math.min(9000, 300 * els.length + 600), temp(s, 0.3));
-      const items = parseJsonArray(r.content).map((x: any) => ({ code: clip(x.code, 24), question: clip(x.question, 800), expected: clip(x.expectedAnswer ?? x.expected, 1500), level: clip(x.level, 8) })).filter((x: any) => x.code && x.question);
+${DISCLAIM} ${styleLine(s)} Return only a JSON array with one object per input item, in order: {"code", "mode", "question", "expectedAnswer", "followUp", "followUpAnswer"} (followUp fields only for "pair").`;
+      const r = await grok(key, sys, JSON.stringify(els), Math.min(9000, 420 * els.length + 600), temp(s, 0.3));
+      const items = parseJsonArray(r.content).map((x: any) => ({ code: clip(x.code, 24), mode: clip(x.mode, 8), question: clip(x.question, 800), expected: clip(x.expectedAnswer ?? x.expected, 1500), followUp: clip(x.followUp, 800), followUpExpected: clip(x.followUpAnswer ?? x.followUpExpected, 1500) })).filter((x: any) => x.code && x.question);
       await log(true, r.usage);
       return j({ items, model: MODEL }, 200, h);
     }

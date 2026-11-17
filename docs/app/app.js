@@ -60,7 +60,8 @@
 
   async function loadStd() {
     if (S.std) return S.std;
-    const [a, b] = await Promise.all([fetch('data/standards.json?v=' + C.version).then((r) => r.json()), fetch('data/regs.json?v=' + C.version).then((r) => r.json())]);
+    const [a, b, ap] = await Promise.all([fetch('data/standards.json?v=' + C.version).then((r) => r.json()), fetch('data/regs.json?v=' + C.version).then((r) => r.json()), fetch('data/appendix.json?v=' + C.version).then((r) => r.json()).catch(() => ({ docs: {} }))]);
+    a.documents.forEach((d) => { d.appendix_items = (ap.docs || {})[d.id] || []; });
     S.std = a.documents; S.regs = b; return S.std;
   }
   async function loadDocsDb() {
@@ -591,8 +592,9 @@
     let saveT = null; let saving = Promise.resolve();
     const docStatus = ((S.docsDb || []).find((d) => d.id === doc.id) || {}).status || 'current';
     const comp = () => E.complianceChecks({ doc, profile: p.test_profile, tasks, content, priorPoas: prior, aktr: content.aktr || (app && app.knowledge_test && app.knowledge_test.aktr) || [], ktests: content.ktests || (app ? E.ktTests(app.knowledge_test) : null), testDate: p.test_date, docStatus, lastCheck: S.lastCheck });
+    const viewTok = {}; S.poaView = viewTok; const live = () => S.poaView === viewTok;
     const save = () => {
-      if (!editable) return;
+      if (!editable || !live()) return; // a background AI run from a plan view the user has left must not overwrite newer edits
       clearTimeout(saveT);
       qs('#saveState', c) && (qs('#saveState', c).textContent = 'Saving…');
       saveT = setTimeout(() => {
@@ -709,6 +711,7 @@
       };
     }
 
+    const codeTag = (c) => (c && c.length ? ` <span class="mono xs muted">· ${esc(c.join(', '))}</span>` : '');
     function paneScenario(el) {
       const sc = content.scenario = content.scenario || { triggers: [] };
       const missions = E.missionsFor(p.test_profile);
@@ -733,12 +736,12 @@
           if (!inc.length) return '';
           const areas = []; inc.forEach((t) => { let g = areas.find((x) => x.r === t.area.roman); if (!g) areas.push(g = { r: t.area.roman, title: t.area.title, list: [] }); g.list.push(t); });
           return `<div class="card" id="tsCard"><div class="card-head"><h2>Task scenarios</h2><span class="xs muted">${done} of ${inc.length} tasks have a scenario · printed with each task</span></div>
-          <p class="xs muted" style="margin-top:0">Each task gets its own scenario inside the main story, plus sub-scenarios: follow-up developments that change one condition to draw out other elements. ${sc.aiDraft ? 'AI drafts need examiner review.' : ''}</p>
+          <p class="xs muted" style="margin-top:0">Each task scenario creates a reason the applicant must perform the task, and each sub-scenario changes one condition so a specific skill element has to be demonstrated. The element codes each one requires are shown beside it. ${sc.aiDraft ? 'AI drafts need examiner review.' : ''}</p>
           ${editable && can('org_admin', 'examiner') ? `<div class="btn-row" style="margin-bottom:.5rem"><button type="button" class="btn ghost sm" id="aiTm">${done ? 'Draft missing tasks with AI' : 'Draft all task scenarios with AI'}</button>${done ? '<button type="button" class="btn ghost sm" id="aiTa">Redraft all with AI</button>' : ''}</div>` : ''}
           ${areas.map((g) => `<details class="ts-area" ${g.list.some((t) => !(ts[t.key] || '').trim()) || areas.length < 3 ? 'open' : ''}><summary class="sm strong">${esc(g.r)}. ${esc(g.title)} <span class="xs muted" style="font-weight:400">${g.list.filter((t) => (ts[t.key] || '').trim()).length}/${g.list.length}</span></summary>
             ${g.list.map((t) => `<div class="ts-task"><div class="sm"><span class="mono">${esc(t.key)}</span> ${esc(t.task.title_plain || t.task.title)} <span class="xs muted">${esc({ oral: 'Oral', flight: 'Flight', both: 'Oral and flight' }[content.tasks[t.key].method] || '')}</span></div>
-              <label class="xs">Task scenario<textarea class="tsc" data-k="${esc(t.key)}" ${dis} style="min-height:52px" placeholder="Scenario for this task">${esc(ts[t.key] || '')}</textarea></label>
-              ${(sub[t.key] || []).map((x, i) => `<div class="ts-sub"><label class="xs">Sub-scenario ${i + 1}<textarea class="tss" data-k="${esc(t.key)}" data-i="${i}" ${dis} style="min-height:44px">${esc(x)}</textarea></label>${editable ? `<button type="button" class="btn ghost sm tsr" data-k="${esc(t.key)}" data-i="${i}" aria-label="Remove sub-scenario">Remove</button>` : ''}</div>`).join('')}
+              <label class="xs">Task scenario${codeTag((sc.taskCodes || {})[t.key])}<textarea class="tsc" data-k="${esc(t.key)}" ${dis} style="min-height:52px" placeholder="Scenario for this task">${esc(ts[t.key] || '')}</textarea></label>
+              ${(sub[t.key] || []).map((x, i) => `<div class="ts-sub"><label class="xs">Sub-scenario ${i + 1}${codeTag(((sc.taskSubCodes || {})[t.key] || [])[i])}<textarea class="tss" data-k="${esc(t.key)}" data-i="${i}" ${dis} style="min-height:44px">${esc(x)}</textarea></label>${editable ? `<button type="button" class="btn ghost sm tsr" data-k="${esc(t.key)}" data-i="${i}" aria-label="Remove sub-scenario">Remove</button>` : ''}</div>`).join('')}
               ${editable ? `<button type="button" class="btn ghost sm tsa" data-k="${esc(t.key)}">Add sub-scenario</button>` : ''}</div>`).join('')}</details>`).join('')}
           ${editable && done ? '<button type="button" class="btn ghost sm" id="clrT" style="margin-top:.5rem">Remove all task scenarios</button>' : ''}</div>`; })()}
         <div class="card"><div class="card-head"><h2>Planned events (trigger events)</h2><span class="xs muted">${on.size} selected · events are hidden from the applicant packet</span></div>
@@ -758,17 +761,22 @@
       const TYPE_L = { K: 'K', R: 'R', S: 'S' };
       const taskList = (onlyMissing) => tasks.filter((t) => content.tasks[t.key] && content.tasks[t.key].included && (!onlyMissing || !((sc.taskScenarios || {})[t.key] || '').trim())).map((t) => {
         const ct = content.tasks[t.key]; const codes = E.elementCodes(doc, t.area, t.task); const sel = new Set(ct.elements || []);
-        let els = t.task.elements.map((e, i) => ({ e, c: codes[i] })).filter((x) => sel.has(x.c)); if (!els.length) els = t.task.elements.map((e, i) => ({ e, c: codes[i] })).filter((x) => x.e.type === 'S' || !doc.kind || doc.kind === 'PTS');
-        return { key: t.key, title: t.task.title_plain || t.task.title, method: ct.method || '', elements: els.slice(0, 14).map((x) => (TYPE_L[x.e.type] ? x.e.type + ': ' : '') + x.e.text) }; });
+        // Every skill element (the scenario must make the applicant perform them) plus the selected knowledge and risk elements.
+        const all = t.task.elements.map((e, i) => ({ e, c: codes[i] })).filter((x) => E.elementApplies(doc, t.task, x.e, p.test_profile.cls));
+        let els = all.filter((x) => x.e.type === 'S' || sel.has(x.c)); if (!els.length) els = all;
+        els = els.filter((x) => !(x.e.sub == null && all.some((y) => y.e.sub && y.e.type === x.e.type && y.e.num === x.e.num && els.includes(y))));
+        els.sort((a, b) => (a.e.type === 'S' ? 0 : 1) - (b.e.type === 'S' ? 0 : 1));
+        return { key: t.key, title: t.task.title_plain || t.task.title, method: ct.method || '', elements: els.slice(0, 20).map((x) => (x.e.type || 'O') + ' ' + x.c + ': ' + x.e.text) }; });
       // Draft scenarios for tasks in batches so every included task gets one (oral tasks included).
       const draftTasks = async (list, progress) => {
         sc.taskScenarios = Object.assign({}, sc.taskScenarios || {}); sc.taskSubs = Object.assign({}, sc.taskSubs || {}); let n = 0;
         let fails = 0, lastErr = null;
         for (let i = 0; i < list.length; i += 6) {
-          const part = list.slice(i, i + 6); if (progress) progress(i, list.length);
+          if (!live()) break; const part = list.slice(i, i + 6); if (progress) progress(i, list.length);
           let r = null; for (let a = 0; a < 2 && !r; a++) { try { r = await A2().ai('task_scenarios', { master: sc.mission, tasks: part }); } catch (er) { lastErr = er; } }
           if (!r) { fails++; continue; }
-          (r.items || []).forEach((x) => { if (part.some((t) => t.key === x.key)) { sc.taskScenarios[x.key] = x.text; sc.taskSubs[x.key] = x.subs || []; n++; } });
+          sc.taskCodes = Object.assign({}, sc.taskCodes || {}); sc.taskSubCodes = Object.assign({}, sc.taskSubCodes || {});
+          (r.items || []).forEach((x) => { if (part.some((t) => t.key === x.key)) { const subs = (x.subs || []).map((y) => typeof y === 'string' ? { text: y, codes: [] } : y); sc.taskScenarios[x.key] = x.text; sc.taskCodes[x.key] = x.codes || []; sc.taskSubs[x.key] = subs.map((y) => y.text); sc.taskSubCodes[x.key] = subs.map((y) => y.codes || []); n++; } });
           sc.aiDraft = true; save();
         }
         if (!n && lastErr) throw lastErr;
@@ -786,7 +794,7 @@
       const aiTa = qs('#aiTa', el); if (aiTa) aiTa.onclick = () => runDraft(aiTa, false);
       qsa('.tss', el).forEach((t) => t.oninput = () => { const a = sc.taskSubs[t.dataset.k] || []; a[+t.dataset.i] = t.value; sc.taskSubs[t.dataset.k] = a; save(); });
       qsa('.tsa', el).forEach((b) => b.onclick = () => { sc.taskSubs = sc.taskSubs || {}; (sc.taskSubs[b.dataset.k] = sc.taskSubs[b.dataset.k] || []).push(''); save(); paneScenario(el); });
-      qsa('.tsr', el).forEach((b) => b.onclick = () => { const a = (sc.taskSubs || {})[b.dataset.k] || []; a.splice(+b.dataset.i, 1); save(); paneScenario(el); });
+      qsa('.tsr', el).forEach((b) => b.onclick = () => { const a = (sc.taskSubs || {})[b.dataset.k] || []; a.splice(+b.dataset.i, 1); const ac = (sc.taskSubCodes || {})[b.dataset.k]; if (ac) ac.splice(+b.dataset.i, 1); save(); paneScenario(el); });
       qsa('.tsc', el).forEach((t) => t.oninput = () => { sc.taskScenarios = sc.taskScenarios || {}; sc.taskScenarios[t.dataset.k] = t.value; save(); });
       // Every plan gets an AI scenario: the first time the Scenario step opens with no scenario, draft the mission and
       // the task sub-scenarios with Grok. The examiner still reviews and edits before finalizing.
@@ -802,7 +810,7 @@
           } catch (er) { if (document.body.contains(box)) { box.className = 'banner warn'; box.textContent = 'AI scenario could not be drafted (' + (er && er.message ? er.message : 'error') + '). Use Draft scenario with AI to try again.'; } }
         })();
       }
-      const clrT = qs('#clrT', el); if (clrT) clrT.onclick = async () => { if (!(await confirmBox('Remove all task scenarios?', 'Every task scenario and sub-scenario is cleared. The main scenario stays.', 'Remove'))) return; delete sc.taskScenarios; delete sc.taskSubs; save(); paneScenario(el); };
+      const clrT = qs('#clrT', el); if (clrT) clrT.onclick = async () => { if (!(await confirmBox('Remove all task scenarios?', 'Every task scenario and sub-scenario is cleared. The main scenario stays.', 'Remove'))) return; delete sc.taskScenarios; delete sc.taskSubs; delete sc.taskCodes; delete sc.taskSubCodes; save(); paneScenario(el); };
       qs('#tpl', el).onchange = (e) => { const m = missions[+e.target.value]; if (!m) return; sc.missionName = m.name; sc.mission = fill(m.text); save(); paneScenario(el); };
       qsa('.tg', el).forEach((cb) => cb.onchange = () => {
         const tr = E.TRIGGERS.find((x) => x.id === cb.dataset.id);
@@ -830,83 +838,132 @@
 
     async function paneQuestions(el) {
       const qsList = content.questions = content.questions || [];
-      const sel = []; tasks.forEach((t) => { const ct = content.tasks[t.key]; if (!ct || !ct.included) return; const codes = E.elementCodes(doc, t.area, t.task); t.task.elements.forEach((e, i) => { if ((ct.elements || []).includes(codes[i])) sel.push({ t, e, ref: codes[i] }); }); });
-      const incl = tasks.filter((t) => content.tasks[t.key] && content.tasks[t.key].included);
+      const isACS = doc.kind === 'ACS';
+      const aktr = new Set((content.aktr || []).map((x) => String(x).toUpperCase()));
+      // Elements that get questions: every element marked for testing. On an ACS that is the selected knowledge and risk elements plus every applicable
+      // skill element; a skill question is asked right after the applicant demonstrates it in the task scenario. A parent with sub-elements is covered by its subs.
+      const rows = [];
+      tasks.forEach((t) => {
+        const ct = content.tasks[t.key]; if (!ct || !ct.included) return;
+        const codes = E.elementCodes(doc, t.area, t.task); const pick = new Set(ct.elements || []);
+        const list = t.task.elements.map((e, i) => ({ t, e, ref: codes[i] })).filter((x) => E.elementApplies(doc, t.task, x.e, p.test_profile.cls) && (!isACS ? pick.has(x.ref) : x.e.type === 'S' || ((x.e.type === 'K' || x.e.type === 'R') && pick.has(x.ref))));
+        list.filter((x) => !(x.e.sub == null && list.some((y) => y.e.sub && y.e.type === x.e.type && y.e.num === x.e.num))).forEach((x) => rows.push(Object.assign(x, { aktr: aktr.has(String(x.ref).toUpperCase()) })));
+      });
+      const scn = content.scenario || {};
+      // The scenario text where a skill element is demonstrated: the sub-scenario that lists it, else the task scenario.
+      const scenOf = (r) => { const subs = (scn.taskSubs || {})[r.t.key] || []; const sc2 = (scn.taskSubCodes || {})[r.t.key] || []; const i = sc2.findIndex((c) => (c || []).includes(r.ref)); return i >= 0 && subs[i] ? { label: 'Sub-scenario ' + (i + 1), text: subs[i] } : (scn.taskScenarios || {})[r.t.key] ? { label: 'Task scenario', text: scn.taskScenarios[r.t.key] } : null; };
+      const rowOf = new Map(rows.map((r) => [r.ref, r]));
+      // Older plans stored questions without a slot number; give the first two on each element slots 1 and 2.
+      const seen = {}; qsList.forEach((x) => { if (!x.seq && x.ref && rowOf.has(x.ref)) { seen[x.ref] = (seen[x.ref] || 0) + 1; x.seq = seen[x.ref]; } });
       let bank = [];
-      try { const codes = [...new Set(sel.map((x) => x.ref))]; for (let i = 0; i < codes.length; i += 150) bank = bank.concat(await q(sb.from('questions').select('*').eq('org_id', S.orgId).eq('status', 'approved').eq('standard_id', doc.id).in('element_code', codes.slice(i, i + 150)))); } catch (_) {}
-      const LV = { 1: 'Easy', 2: 'Medium', 3: 'Hard' }; const LVK = { 1: 'easy', 2: 'medium', 3: 'hard' };
-      const aktr = new Set((content.aktr || []).map((x) => x.toUpperCase()));
-      // Three questions per task: one easy (softball), one medium, one hard, each on a different element where possible.
-      const pickThree = () => {
-        const used = new Set(qsList.filter((x) => x.bankId).map((x) => x.bankId)); const gaps = []; let n = 0;
-        incl.forEach((t) => {
-          const mine = sel.filter((x) => x.t.key === t.key); const refs = new Set(mine.map((x) => x.ref));
-          const have = qsList.filter((x) => x.task === t.key && x.level); const taken = new Set(have.map((x) => x.ref));
-          [1, 2, 3].forEach((lv) => {
-            if (have.some((x) => x.level === lv)) return;
-            const pool = bank.filter((b) => refs.has(b.element_code) && +b.difficulty === lv && !used.has(b.id));
-            const score = (b) => (taken.has(b.element_code) ? 10 : 0) - (aktr.has(String(b.element_code).toUpperCase()) ? 5 : 0) + Math.random();
-            const b = pool.sort((x, y) => score(x) - score(y))[0];
-            if (b) { used.add(b.id); taken.add(b.element_code); qsList.push({ id: uid().slice(0, 8), bankId: b.id, ref: b.element_code, task: t.key, level: lv, portion: b.portion || 'oral', prompt: b.prompt, expected: b.expected, source: 'bank' }); n++; }
-            else gaps.push({ t, lv });
-          });
-        });
-        return { n, gaps };
+      try { const codes = rows.map((r) => r.ref); for (let i = 0; i < codes.length; i += 150) bank = bank.concat(await q(sb.from('questions').select('*').eq('org_id', S.orgId).eq('status', 'approved').eq('standard_id', doc.id).in('element_code', codes.slice(i, i + 150)))); } catch (_) {}
+      const bankBy = {}; bank.forEach((b) => (bankBy[b.element_code] = bankBy[b.element_code] || []).push(b));
+      content.qCount = content.qCount || {}; const mode = content.qMode || '1';
+      const cnt = (ref) => (content.qCount[ref] != null ? content.qCount[ref] : mode === '2' ? 2 : 1);
+      const slot = (ref, seq) => qsList.find((x) => x.ref === ref && x.seq === seq);
+      const drop = (fn) => { for (let i = qsList.length - 1; i >= 0; i--) if (fn(qsList[i])) qsList.splice(i, 1); };
+      const rnd = (a) => a[Math.floor(Math.random() * a.length)];
+      // Put a bank question in slot 1. shuffle = choose a different one at random; a follow-up written for the old question is removed.
+      const pickBank = (r, shuffle) => {
+        if (cnt(r.ref) < 1) return false; const cur = slot(r.ref, 1);
+        if (cur && (!shuffle || cur.source === 'manual')) return false;
+        const pool = (bankBy[r.ref] || []).filter((b) => !cur || b.id !== cur.bankId); if (!pool.length) return false;
+        const b = rnd(pool);
+        if (cur) { drop((x) => x === cur || (x.ref === r.ref && x.seq === 2 && x.parent === cur.id && x.source !== 'manual')); }
+        qsList.push({ id: uid().slice(0, 8), bankId: b.id, ref: r.ref, task: r.t.key, seq: 1, portion: 'oral', prompt: b.prompt, expected: b.expected, source: 'bank' });
+        return true;
       };
-      const levelGaps = () => { const g = []; incl.forEach((t) => [1, 2, 3].forEach((lv) => { if (!qsList.some((x) => x.task === t.key && x.level === lv)) g.push({ t, lv }); })); return g; };
-      if (editable && !qsList.length && !content.qPicked && incl.length) { content.qPicked = true; pickThree(); save(); }
-      const gaps = levelGaps();
-      const order = new Map(incl.map((t, i) => [t.key, i]));
-      const view = qsList.map((x, i) => ({ x, i })).sort((a, b) => ((order.has(a.x.task) ? order.get(a.x.task) : 999) - (order.has(b.x.task) ? order.get(b.x.task) : 999)) || ((a.x.level || 9) - (b.x.level || 9)));
-      const counts = qsList.reduce((a, x) => (a[x.level || 0] = (a[x.level || 0] || 0) + 1, a), {});
-      el.innerHTML = `<div class="banner info">Each included task gets three questions: one easy (softball), one medium and one hard, each on a different selected element where the bank allows. Approved bank questions are used first; AI fills only the levels the bank is missing. Review the wording before the test.</div>
-        ${gaps.length ? `<div class="banner warn">${gaps.length} level(s) still empty across ${new Set(gaps.map((g) => g.t.key)).size} task(s): ${esc(Array.from(new Set(gaps.map((g) => g.t.key))).slice(0, 12).join(', '))}${new Set(gaps.map((g) => g.t.key)).size > 12 ? '…' : ''}.</div>` : incl.length ? '<div class="banner ok">Every included task has an easy, medium and hard question.</div>' : ''}
-        <div class="btn-row" style="margin-bottom:.8rem">${editable ? `<button class="btn" id="pick3">${qsList.some((x) => x.level) ? 'Pick again (3 per task)' : 'Pick 3 per task'}</button>${gaps.length && can('org_admin', 'examiner') ? `<button class="btn ghost" id="aiQ">Fill ${gaps.length} empty level(s) with AI</button>` : ''}<button class="btn ghost" id="addQ">Add a question</button>${qsList.length ? '<button class="btn danger sm" id="clr">Clear all</button>' : ''}` : ''}
-        <span class="sm muted">${qsList.length} total · ${counts[1] || 0} easy · ${counts[2] || 0} medium · ${counts[3] || 0} hard${counts[0] ? ' · ' + counts[0] + ' other' : ''}</span></div>
-        <div class="card flush"><div class="table-wrap"><table class="t"><thead><tr><th style="width:8.5rem">Task / element</th><th>Prompt</th><th style="width:6.5rem">Level</th><th></th></tr></thead><tbody>
-        ${view.length ? view.map(({ x, i }) => `<tr><td class="mono xs">${esc(x.task || '')}<div class="muted">${esc(x.ref || '')}</div></td><td>${editable ? `<textarea data-i="${i}" class="qp" style="min-height:52px;margin:0">${esc(x.prompt)}</textarea>` : esc(x.prompt)}${x.source === 'bank' ? '<span class="pill info">Bank</span>' : ''}${x.source === 'ai' ? '<span class="pill warn">AI draft — examiner review</span>' : ''}${x.expected ? `<div class="xs muted" style="margin-top:.25rem"><b>Expected:</b> ${editable ? `<textarea data-i="${i}" class="qe" style="min-height:44px;margin:.2rem 0 0">${esc(x.expected)}</textarea>` : esc(x.expected)}</div>` : ''}</td><td>${editable ? `<select data-i="${i}" class="ql" style="margin:0;min-width:5.5rem"><option value="">—</option>${[1, 2, 3].map((v) => `<option value="${v}" ${x.level === v ? 'selected' : ''}>${LV[v]}</option>`).join('')}</select>` : `<span class="pill ${x.level === 3 ? 'bad' : x.level === 2 ? 'warn' : 'ok'}">${esc(LV[x.level] || x.portion || '')}</span>`}</td><td>${editable ? `<button class="btn ghost sm" data-del="${i}" aria-label="Remove">✕</button>` : ''}</td></tr>`).join('') : '<tr><td colspan="4"><div class="empty">No questions yet. Use Pick 3 per task.</div></td></tr>'}
-        </tbody></table></div></div>`;
+      const setCount = (r, n) => { content.qCount[r.ref] = n; drop((x) => x.ref === r.ref && x.seq > n); };
+      const applyAll = (m) => { content.qMode = m; rows.forEach((r) => setCount(r, m === 'random' ? (Math.random() < 0.5 ? 1 : 2) : +m)); rows.forEach((r) => pickBank(r, false)); };
+      const gapsOf = () => { const g = []; rows.forEach((r) => { const n = cnt(r.ref); const a = slot(r.ref, 1), b = slot(r.ref, 2); if (n >= 1 && !a) g.push({ r, m: n === 2 ? 'pair' : 'single' }); else if (n === 2 && a && !b) g.push({ r, m: 'follow', first: a }); }); return g; };
+      const st0 = await A2().orgSettings().catch(() => ({})); const sp = E.scenarioProfile(st0, p.test_profile.cert) || {};
+      // Fill every empty slot with Grok, in batches. Returns the number of questions added.
+      const aiFill = async (progress) => {
+        const want = gapsOf(); let n = 0; const banked = [];
+        for (let i = 0; i < want.length; i += 20) {
+          if (!live()) break; const part = want.slice(i, i + 20); if (progress) progress(Math.min(i + 20, want.length), want.length);
+          let r = null; for (let a = 0; a < 2 && !r; a++) { try { r = await A2().ai('questions', { difficulty: sp.difficulty || '', elements: part.map((g) => ({ code: g.r.ref, task: g.r.t.key, type: g.r.aktr ? 'A' : g.r.e.type, text: g.r.e.text, references: g.r.t.task.references || '', mode: g.m, scenario: g.r.e.type === 'S' && scenOf(g.r) ? scenOf(g.r).text : undefined, firstQuestion: g.first ? g.first.prompt : undefined, firstExpected: g.first ? g.first.expected : undefined })) }); } catch (er) { if (a) throw er; } }
+          const out = (r && r.items) || [];
+          part.forEach((g, k) => {
+            const same = (o) => o && !o._u && String(o.code || '').trim().toUpperCase() === String(g.r.ref).toUpperCase();
+            const x = (same(out[k]) ? out[k] : null) || out.find((o) => same(o) && (!o.mode || o.mode === g.m)) || (out.length === part.length && out[k] && !out[k]._u ? out[k] : null);
+            if (!x || !x.question) return; x._u = true;
+            if (g.m === 'follow') { if (!slot(g.r.ref, 2)) { qsList.push({ id: uid().slice(0, 8), ref: g.r.ref, task: g.r.t.key, seq: 2, parent: g.first.id, portion: 'oral', prompt: x.question, expected: x.expected, source: 'ai' }); n++; } return; }
+            if (slot(g.r.ref, 1)) return;
+            const q1 = { id: uid().slice(0, 8), ref: g.r.ref, task: g.r.t.key, seq: 1, portion: 'oral', prompt: x.question, expected: x.expected, source: 'ai' }; qsList.push(q1); n++; banked.push(q1);
+            if (g.m === 'pair' && x.followUp && !slot(g.r.ref, 2)) { qsList.push({ id: uid().slice(0, 8), ref: g.r.ref, task: g.r.t.key, seq: 2, parent: q1.id, portion: 'oral', prompt: x.followUp, expected: x.followUpExpected, source: 'ai' }); n++; }
+          });
+          save();
+        }
+        // First questions are kept in the bank as drafts so a reviewer can approve them for reuse.
+        if (banked.length) { try { await q(sb.from('questions').insert(banked.map((x) => ({ org_id: S.orgId, standard_id: doc.id, element_code: x.ref, task_ref: x.task, portion: 'oral', prompt: x.prompt, expected: x.expected || null, refs: (tasks.find((t) => t.key === x.task) || { task: {} }).task.references || null, difficulty: 2, status: 'draft', source: 'ai_draft', created_by: S.ctx.user_id })))); } catch (_) {} }
+        return n;
+      };
+      const canAI = editable && can('org_admin', 'examiner');
+      if (editable && !content.qPicked && rows.length) { content.qPicked = true; applyAll(content.qMode || '1'); save(); }
+      const gaps = gapsOf();
+      const autoRun = canAI && gaps.length && !content.qAiAuto;
+      const inRows = new Set(); qsList.forEach((x, i) => { if (x.ref && rowOf.has(x.ref) && (x.seq === 1 || x.seq === 2)) inRows.add(i); });
+      const others = qsList.map((x, i) => ({ x, i })).filter(({ i }) => !inRows.has(i));
+      const total = qsList.length - others.length;
+      const TL = { K: 'Knowledge', R: 'Risk', S: 'Skill', O: 'Item' };
+      const slotHtml = (r, seq) => {
+        const x = slot(r.ref, seq); const lab = seq === 1 ? 'Question' : 'Follow-up';
+        const pill = x ? (x.source === 'bank' ? '<span class="pill info">Bank</span>' : x.source === 'ai' ? '<span class="pill warn">AI draft — examiner review</span>' : '') : '';
+        if (!editable) return x ? `<div class="q-slot ${seq === 2 ? 'q-fu' : ''}"><div class="xs strong">${lab}</div><div class="sm">${esc(x.prompt)}</div>${x.expected ? `<div class="xs muted"><b>Expected:</b> ${esc(x.expected)}</div>` : ''}</div>` : '';
+        return `<div class="q-slot ${seq === 2 ? 'q-fu' : ''}"><div class="xs strong">${lab} ${pill}</div><textarea class="qp" data-ref="${esc(r.ref)}" data-seq="${seq}" style="min-height:44px;margin:.15rem 0 0" placeholder="${x ? '' : 'Missing. Type a question, or use Write missing with AI.'}">${esc(x ? x.prompt : '')}</textarea>
+          <label class="xs muted" style="margin:.2rem 0 0">Expected answer<textarea class="qe" data-ref="${esc(r.ref)}" data-seq="${seq}" style="min-height:40px;margin:.15rem 0 0">${esc(x ? x.expected || '' : '')}</textarea></label></div>`;
+      };
+      let lastTask = '';
+      const body = rows.map((r) => {
+        const n = cnt(r.ref); const head = r.t.key !== lastTask ? `<tr class="q-task"><td colspan="3" class="sm strong"><span class="mono">${esc(r.t.key)}</span> ${esc(r.t.task.title_plain || r.t.task.title)}</td></tr>` : ''; lastTask = r.t.key;
+        return `${head}<tr><td class="mono xs" style="width:8.5rem">${esc(r.ref)}<div><span class="pill ${r.e.type === 'R' ? 'warn' : 'info'}">${esc(TL[r.e.type] || r.e.type || '')}</span>${r.aktr ? ' <span class="pill bad" title="Missed on the knowledge test">AKTR</span>' : ''}</div></td>
+          <td><div class="sm" style="margin-bottom:.3rem">${esc(r.e.text)}</div>${r.e.type === 'S' ? (scenOf(r) ? `<div class="xs muted" style="margin-bottom:.3rem"><b>Asked after ${esc(scenOf(r).label.toLowerCase())}:</b> ${esc(scenOf(r).text.slice(0, 220))}${scenOf(r).text.length > 220 ? '…' : ''}</div>` : '<div class="xs muted" style="margin-bottom:.3rem">Asked after the applicant performs this skill. Draft task scenarios first so the question can refer to them.</div>') : ''}${n ? [1, 2].filter((s2) => s2 <= n).map((s2) => slotHtml(r, s2)).join('') : '<div class="xs muted">Not questioned on this plan.</div>'}</td>
+          <td style="width:7.5rem">${editable ? `<select class="qn" data-ref="${esc(r.ref)}" aria-label="Questions for ${esc(r.ref)}" style="margin:0">${[0, 1, 2].map((v) => `<option value="${v}" ${n === v ? 'selected' : ''}>${v}</option>`).join('')}</select>${(bankBy[r.ref] || []).length > (slot(r.ref, 1) && slot(r.ref, 1).bankId ? 1 : 0) && n ? `<button type="button" class="btn ghost sm qr" data-ref="${esc(r.ref)}" style="margin-top:.3rem">Random</button>` : ''}` : n}</td></tr>`;
+      }).join('');
+      el.innerHTML = `<div class="banner info">Every element marked for testing gets its own question and expected answer. Skill elements are demonstrated in the task scenarios and sub-scenarios, then followed by a question about what the applicant just did. Choose 1 or 2 per element (the second goes one step deeper on the first), or set any element to 0. Approved bank questions are picked at random first; AI writes what the bank is missing.</div>
+        ${autoRun ? '<div class="banner warn" id="qAuto">Writing missing questions with AI…</div>' : gaps.length ? `<div class="banner warn">${gaps.length} element(s) still need a question or follow-up.</div>` : rows.length ? '<div class="banner ok">Every selected element has its questions.</div>' : '<div class="banner warn">No elements are selected. Select them on Tasks and elements.</div>'}
+        ${editable ? `<div class="btn-row" style="margin-bottom:.8rem;align-items:flex-end;flex-wrap:wrap"><label class="xs" style="margin:0">Questions per element<select id="qMode" style="margin:.15rem 0 0;min-width:13rem"><option value="1" ${mode === '1' ? 'selected' : ''}>1</option><option value="2" ${mode === '2' ? 'selected' : ''}>2 (question and follow-up)</option><option value="random" ${mode === 'random' ? 'selected' : ''}>Random (1 or 2)</option></select></label>
+          <button class="btn" id="qApply">Apply to all</button><button class="btn ghost" id="qShuffle">Random pick from bank</button>${canAI && gaps.length && !autoRun ? `<button class="btn ghost" id="aiQ">Write ${gaps.length} missing with AI</button>` : ''}${qsList.length ? '<button class="btn danger sm" id="clr">Clear all</button>' : ''}</div>` : ''}
+        <p class="sm muted">${rows.length} element(s) · ${total} question(s)${others.length ? ' · ' + others.length + ' other' : ''}</p>
+        <div class="card flush"><div class="table-wrap"><table class="t q-table"><thead><tr><th>Element</th><th>Question and expected answer</th><th>Count</th></tr></thead><tbody>${body || '<tr><td colspan="3"><div class="empty">No elements selected.</div></td></tr>'}</tbody></table></div></div>
+        <div class="card"><div class="card-head"><h2>Other questions</h2>${editable ? '<button class="btn ghost sm" id="addQ">Add a question</button>' : ''}</div>
+          ${others.length ? others.map(({ x, i }) => `<div class="q-slot"><div class="xs muted mono">${esc([x.task, x.ref].filter(Boolean).join(' · ') || 'General')}</div>${editable ? `<textarea class="qop" data-i="${i}" style="min-height:44px;margin:.15rem 0 0">${esc(x.prompt)}</textarea><label class="xs muted" style="margin:.2rem 0 0">Expected answer<textarea class="qoe" data-i="${i}" style="min-height:40px;margin:.15rem 0 0">${esc(x.expected || '')}</textarea></label><button class="btn ghost sm" data-del="${i}">Remove</button>` : `<div class="sm">${esc(x.prompt)}</div>${x.expected ? `<div class="xs muted">Expected: ${esc(x.expected)}</div>` : ''}`}</div>`).join('') : '<p class="xs muted">Questions not tied to a selected element, such as general or carried-over questions, appear here.</p>'}</div>`;
       if (!editable) return;
-      const p3 = qs('#pick3', el); if (p3) p3.onclick = async () => {
-        const auto = qsList.filter((x) => x.source !== 'manual');
-        if (auto.length && !(await confirmBox('Pick questions again?', 'The ' + auto.length + ' bank, generated and AI question(s) are replaced with one easy, one medium and one hard question per task. Questions you added by hand stay.', 'Pick again'))) return;
-        const keep = qsList.filter((x) => x.source === 'manual'); qsList.length = 0; keep.forEach((x) => qsList.push(x)); content.qPicked = true;
-        const r = pickThree(); save(); paneQuestions(el); toast(r.n + ' question(s) picked' + (r.gaps.length ? '; ' + r.gaps.length + ' level(s) need AI or a manual question' : ''));
-      };
-      qsa('.ql', el).forEach((s2) => s2.onchange = () => { qsList[+s2.dataset.i].level = s2.value ? +s2.value : undefined; save(); paneQuestions(el); });
-      const aiQ = qs('#aiQ', el); if (aiQ) aiQ.onclick = async () => {
-        const want = levelGaps(); if (!want.length) return;
-        const items = want.map(({ t, lv }) => {
-          const mine = sel.filter((x) => x.t.key === t.key); const usedRefs = new Set(qsList.filter((x) => x.task === t.key).map((x) => x.ref));
-          const pool = mine.filter((x) => x.e.type !== 'S' && !usedRefs.has(x.ref)); const any = pool.length ? pool : mine.filter((x) => !usedRefs.has(x.ref)).concat(mine);
-          const m = any[0] || { t, e: t.task.elements[0] || { type: 'K', text: t.task.title }, ref: t.key };
-          usedRefs.add(m.ref); return { m, lv };
-        });
-        const st = await A2().orgSettings(); const sp = E.scenarioProfile(st, p.test_profile.cert) || {};
-        const lbl = aiQ.textContent; let n = 0;
+      const rerender = () => { if (el.isConnected) paneQuestions(el); };
+      const runAI = async (b) => {
+        const box = qs('#qAuto', el); const lbl = b ? b.textContent : '';
         try {
-          await act(aiQ, async () => {
-            for (let i = 0; i < items.length; i += 30) {
-              const part = items.slice(i, i + 30); aiQ.textContent = 'Drafting ' + Math.min(i + 30, items.length) + ' of ' + items.length + '…';
-              const r = await A2().ai('questions', { difficulty: sp.difficulty || '', elements: part.map(({ m, lv }) => ({ code: m.ref, task: m.t.key, level: LVK[lv], type: aktr.has(String(m.ref).toUpperCase()) ? 'A' : m.e.type, text: m.e.text, references: m.t.task.references || '' })) });
-              const out = r.items || [];
-              part.forEach((it, k) => { const lvName = LVK[it.lv]; const same = (o) => !o._u && String(o.code || '').trim().toUpperCase() === String(it.m.ref).toUpperCase(); const lvOf = (o) => String(o.level || '').trim().toLowerCase();
-                const x = (out[k] && same(out[k]) ? out[k] : null) || out.find((o) => same(o) && lvOf(o) === lvName) || out.find((o) => same(o)) || (out.length === part.length && out[k] && !out[k]._u ? out[k] : null); if (!x || !x.question) return; x._u = true;
-                qsList.push({ id: uid().slice(0, 8), ref: it.m.ref, task: it.m.t.key, level: it.lv, portion: it.lv === 3 ? 'scenario' : 'oral', prompt: x.question, expected: x.expected, source: 'ai' }); n++; });
-              save();
-              // Keep AI drafts in the question bank as drafts so a reviewer can approve them for reuse.
-              const added = qsList.slice(-n).filter((x) => x.source === 'ai' && !x.banked);
-              if (added.length) { try { await q(sb.from('questions').insert(added.map((x) => ({ org_id: S.orgId, standard_id: doc.id, element_code: x.ref, task_ref: x.task, portion: x.portion, prompt: x.prompt, expected: x.expected || null, refs: (tasks.find((t) => t.key === x.task) || { task: {} }).task.references || null, difficulty: x.level, status: 'draft', source: 'ai_draft', created_by: S.ctx.user_id })))); added.forEach((x) => x.banked = true); save(); } catch (_) {} }
-            }
-          });
-          aiQ.textContent = lbl; paneQuestions(el); toast(n + ' AI question(s) added. Review before use.');
-        } catch (_) { aiQ.textContent = lbl; }
+          const go = () => aiFill((i, tot) => { const t = 'Writing questions with AI ' + i + ' of ' + tot + '…'; if (b) b.textContent = t; const bx = qs('#qAuto', el); if (bx) bx.textContent = t; });
+          const n = b ? await act(b, go) : await go(); toast(n + ' AI question(s) added. Review before use.');
+        } catch (_) { if (!b) toast('AI questions could not be written. Use Write missing with AI to try again.', true); }
+        if (b) b.textContent = lbl; if (box || b) rerender();
       };
-      qsa('.qe', el).forEach((t) => t.oninput = () => { qsList[+t.dataset.i].expected = t.value; save(); });
-      const aq = qs('#addQ', el); if (aq) aq.onclick = () => { qsList.push({ id: uid().slice(0, 8), ref: '', portion: 'oral', prompt: 'New question', source: 'manual' }); save(); paneQuestions(el); };
-      const cl = qs('#clr', el); if (cl) cl.onclick = async () => { if (await confirmBox('Clear all questions?', 'All questions in this plan will be removed.', 'Clear')) { content.questions = []; save(); paneQuestions(el); } };
-      qsa('.qp', el).forEach((t) => t.oninput = () => { qsList[+t.dataset.i].prompt = t.value; save(); });
-      qsa('[data-del]', el).forEach((b) => b.onclick = () => { qsList.splice(+b.dataset.del, 1); save(); paneQuestions(el); });
+      if (autoRun) { content.qAiAuto = true; save(); runAI(null); }
+      const mSel = qs('#qMode', el); if (mSel) mSel.onchange = () => { content.qMode = mSel.value; save(); };
+      qs('#qApply', el).onclick = async () => {
+        const m = mSel.value; const label = m === 'random' ? 'a random 1 or 2' : m;
+        if (!(await confirmBox('Apply to every element?', 'Each selected element is set to ' + label + ' question(s). Existing questions in kept slots stay; extra ones are removed.', 'Apply'))) return;
+        applyAll(m); save(); rerender();
+      };
+      qs('#qShuffle', el).onclick = async () => {
+        if (qsList.some((x) => x.source !== 'manual' && x.seq) && !(await confirmBox('Pick new bank questions?', 'Each element gets a different approved bank question at random where the bank has one. Follow-ups written for replaced questions are removed so new ones can be written. Questions you typed stay.', 'Pick'))) return;
+        let n = 0; rows.forEach((r) => { if (pickBank(r, true)) n++; }); save(); rerender(); toast(n + ' question(s) picked at random');
+      };
+      const aiQ = qs('#aiQ', el); if (aiQ) aiQ.onclick = () => runAI(aiQ);
+      qsa('.qn', el).forEach((s2) => s2.onchange = () => { const r = rowOf.get(s2.dataset.ref); setCount(r, +s2.value); pickBank(r, false); save(); rerender(); });
+      qsa('.qr', el).forEach((b) => b.onclick = () => { const r = rowOf.get(b.dataset.ref); if (pickBank(r, true)) { save(); rerender(); } else toast('No other bank question for this element.'); });
+      const edit = (t, field) => t.oninput = () => {
+        const ref = t.dataset.ref, seq = +t.dataset.seq; let x = slot(ref, seq);
+        if (!x) { const r = rowOf.get(ref); x = { id: uid().slice(0, 8), ref, task: r.t.key, seq, portion: 'oral', prompt: '', expected: '', source: 'manual' }; if (seq === 2 && slot(ref, 1)) x.parent = slot(ref, 1).id; qsList.push(x); }
+        x[field] = t.value; if (field === 'prompt' && !t.value.trim() && !(x.expected || '').trim()) qsList.splice(qsList.indexOf(x), 1); save();
+      };
+      qsa('.qp', el).forEach((t) => edit(t, 'prompt')); qsa('.qe', el).forEach((t) => edit(t, 'expected'));
+      qsa('.qop', el).forEach((t) => t.oninput = () => { qsList[+t.dataset.i].prompt = t.value; save(); });
+      qsa('.qoe', el).forEach((t) => t.oninput = () => { qsList[+t.dataset.i].expected = t.value; save(); });
+      qsa('[data-del]', el).forEach((b) => b.onclick = () => { qsList.splice(+b.dataset.del, 1); save(); rerender(); });
+      const aq = qs('#addQ', el); if (aq) aq.onclick = () => { qsList.push({ id: uid().slice(0, 8), ref: '', portion: 'oral', prompt: 'New question', source: 'manual' }); save(); rerender(); };
+      const cl = qs('#clr', el); if (cl) cl.onclick = async () => { if (await confirmBox('Clear all questions?', 'All questions in this plan will be removed.', 'Clear')) { content.questions = []; save(); rerender(); } };
     }
 
     function paneReview(el) {
@@ -923,11 +980,33 @@
         ${doc.kind === 'PTS' ? `<label class="check sm"><input type="checkbox" data-a="special_emphasis" ${at.special_emphasis ? 'checked' : ''} ${dis}><span>Special emphasis items in ${esc(doc.num)} will be evaluated throughout the test</span></label>` : ''}</div>
         <div class="card"><h2>Summary</h2><div class="kpis small" style="grid-template-columns:repeat(2,1fr)"><div class="kpi"><div class="kpi-label">Met</div><div class="kpi-value" style="color:var(--ok)">${cc.counts.met || 0}</div></div><div class="kpi"><div class="kpi-label">Examiner attested</div><div class="kpi-value" style="color:var(--info)">${cc.counts.attested || 0}</div></div><div class="kpi"><div class="kpi-label">To review</div><div class="kpi-value" style="color:var(--warn)">${cc.counts.review || 0}</div></div><div class="kpi"><div class="kpi-label">Gaps</div><div class="kpi-value" style="color:var(--bad)">${cc.counts.gap || 0}</div></div></div>
         <p class="xs muted">Gaps must be resolved before finalizing. Review items are allowed but appear on the proof form.</p><a class="btn ghost sm" href="#/print/proof/${p.id}">Open proof of compliance</a></div></div>
+        ${apxCard()}
         <div class="card"><h2>Compliance checks</h2>${cc.rows.map((r) => { const qt = r.quoteKey ? regs[r.quoteKey] : null; return `<div class="comp-row"><div>${{ met: '<span class="pill ok">Met</span>', gap: '<span class="pill bad">Gap</span>', review: '<span class="pill warn">Review</span>', attested: '<span class="pill info">Attested</span>' }[r.status]}</div><div><div class="sm strong">${esc(qt ? qt.src : r.cite)}</div>${qt ? `<div class="quote">“${esc(qt.text)}”${qt.paraphrase ? ' <span class="xs muted">(summary)</span>' : ''}</div>` : ''}<div class="sm">${esc(r.evidence)}</div></div></div>`; }).join('')}</div>`;
       if (!editable) return;
       qsa('[data-e]', el).forEach((cb) => cb.onchange = () => { eg[cb.dataset.e] = cb.checked; save(); paneReview(el); render2(); });
       qsa('[data-a]', el).forEach((cb) => cb.onchange = () => { at[cb.dataset.a] = cb.checked; save(); paneReview(el); render2(); });
       const cr = qs('[data-crew]', el); if (cr) cr.onchange = () => { eg.crew = cr.value; save(); paneReview(el); render2(); };
+      const ap = content.appendix = content.appendix || {}; ap.flags = ap.flags || {}; ap.ack = ap.ack || {};
+      qsa('[data-apf]', el).forEach((cb) => cb.onchange = () => { ap.flags[cb.dataset.apf] = cb.checked; save(); paneReview(el); render2(); });
+      qsa('[data-apk]', el).forEach((cb) => cb.onchange = () => { if (cb.checked) ap.ack[cb.dataset.apk] = true; else delete ap.ack[cb.dataset.apk]; save(); paneReview(el); render2(); });
+      const aa = qs('#apAll', el); if (aa) aa.onclick = () => { E.appendixFor(doc, { profile: p.test_profile, content, tasks }).items.forEach((it) => { ap.ack[it.id] = true; }); save(); paneReview(el); render2(); };
+    }
+    function apxCard() {
+      if (!(doc.appendix_items || []).length) return '';
+      const ax = E.appendixFor(doc, { profile: p.test_profile, content, tasks });
+      const groups = {}; ax.items.forEach((it) => { (groups[it.group] = groups[it.group] || []).push(it); });
+      const done = ax.items.filter((it) => ax.ack[it.id]).length;
+      const tog = ax.flags.map((f) => `<label class="check sm"><input type="checkbox" data-apf="${f}" ${ax.values[f] ? 'checked' : ''} ${dis}><span>${esc(E.AP_FLAGS[f])}${ax.auto[f] ? ' <span class="pill">auto</span>' : ''}</span></label>`).join('');
+      const list = Object.keys(groups).map((g) => `<h3 class="sm strong" style="margin:.7rem 0 .3rem">${esc(g)}</h3>` + groups[g].map((it) => {
+        const t = it.text || ''; const lbl = it.kind === 'list' || (it.when || {}).kind === 'list' ? 'Applicant checklist: ' : '';
+        return `<div class="apx-item"><label class="check sm"><input type="checkbox" data-apk="${esc(it.id)}" ${ax.ack[it.id] ? 'checked' : ''} ${dis}><span><strong>${esc(lbl + it.head)}</strong>${it.tasks ? ' <span class="pill">' + esc(it.tasks.join(', ')) + '</span>' : ''}</span></label>
+          ${t && t !== it.head ? `<details class="apx-text"><summary class="xs muted">${esc(t.length > 140 ? t.slice(0, 140).replace(/\s+\S*$/, '') + '…' : t)}</summary><p class="xs">${esc(t)}</p><p class="xs muted">${esc(doc.num)}, ${esc(g)}</p></details>` : ''}</div>`;
+      }).join('')).join('');
+      return `<div class="card apx-card"><h2>Appendix requirements (${esc(doc.num)})</h2>
+        <p class="xs muted">Requirements from the standard's appendices that apply to this applicant, class and the tasks in the plan. Check each one once you have addressed it. Text is quoted from ${esc(doc.num)}; confirm against the current FAA publication.</p>
+        ${tog ? `<details ${Object.keys(ax.values).some((k) => ax.values[k] && !ax.auto[k]) ? 'open' : ''}><summary class="sm strong" style="cursor:pointer">Test conditions (${ax.flags.filter((f) => ax.values[f]).length} of ${ax.flags.length} apply)</summary>${tog}</details>` : ''}
+        <div class="sm" style="margin:.5rem 0">${done} of ${ax.items.length} confirmed ${editable && done < ax.items.length ? '<button class="btn ghost sm" id="apAll" type="button">Confirm all</button>' : ''}</div>
+        ${list || '<p class="sm muted">No appendix requirements apply with the current conditions.</p>'}</div>`;
     }
     function render2() { const cc = comp(); const s = qs('.sticky-actions .sm'); if (s) s.innerHTML = (cc.ready ? '<span class="pill ok">No compliance gaps</span>' : `<span class="pill bad">${cc.counts.gap || 0} gap(s)</span>`) + ` <span class="pill warn">${cc.counts.review || 0} to review</span>`; }
     render();
