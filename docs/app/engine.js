@@ -4,8 +4,8 @@
   'use strict';
 
   const CLASS_LABEL = { ASEL: 'Airplane Single-Engine Land', AMEL: 'Airplane Multiengine Land', ASES: 'Airplane Single-Engine Sea', AMES: 'Airplane Multiengine Sea', RH: 'Rotorcraft Helicopter', RG: 'Rotorcraft Gyroplane' };
-  const CERT_LABEL = { private: 'Private Pilot', commercial: 'Commercial Pilot', instrument: 'Instrument Rating', atp: 'Airline Transport Pilot', cfi: 'Flight Instructor' };
-  const PURPOSE_LABEL = { practical_test: 'Practical test', added_rating: 'Added category / class rating', type_rating: 'Aircraft type rating', retest: 'Retest (after disapproval)', mock_checkride: 'Mock checkride', training: 'Training / stage check', continuation: 'Continuation (after discontinuance)', reinstatement: 'Flight instructor reinstatement' };
+  const CERT_LABEL = { private: 'Private Pilot', commercial: 'Commercial Pilot', instrument: 'Instrument Rating', atp: 'Airline Transport Pilot', cfi: 'Flight Instructor', cfii: 'Flight Instructor Instrument (CFII)' };
+  const PURPOSE_LABEL = { practical_test: 'Initial issuance (new certificate or rating)', added_rating: 'Additional category or class (added to a certificate held)', type_rating: 'Aircraft type rating', retest: 'Retest (after disapproval)', mock_checkride: 'Mock checkride', training: 'Training / stage check', continuation: 'Continuation (after discontinuance)', reinstatement: 'Flight instructor reinstatement' };
   const HELD_OPTIONS = ['ASEL', 'ASES', 'AMEL', 'AMES', 'RH', 'RG', 'Glider', 'Balloon', 'Airship', 'PL', 'IA', 'IH', 'IP'];
 
   // ---------- standard resolution ----------
@@ -16,8 +16,12 @@
     let cat = categoryOfClass(profile.cls);
     if (cert === 'instrument' && profile.cls === 'RG') return { error: 'There is no instrument rating for gyroplanes.' };
     if (cert === 'atp' && profile.cls === 'RG') return { error: 'There is no ATP certificate for gyroplanes.' };
+    if (cert === 'cfii') {
+      if (cat !== 'airplane' && cat !== 'rotorcraft-helicopter') return { error: 'The instrument instructor rating is for airplanes or helicopters (FAA-S-8081-9E).' };
+      const d9 = docs.find((d) => d.cert === 'cfii'); return d9 ? { doc: d9 } : { error: 'FAA-S-8081-9E is not on file.' };
+    }
     if (cert === 'cfi' && cat !== 'airplane') return { error: 'Only the Flight Instructor Airplane ACS (FAA-S-ACS-25) is on file. Use the rotorcraft flight instructor PTS directly for now.' };
-    if (profile.purpose === 'reinstatement' && cert !== 'cfi') return { error: 'Reinstatement applies to the flight instructor certificate only.' };
+    if (profile.purpose === 'reinstatement' && cert !== 'cfi' && cert !== 'cfii') return { error: 'Reinstatement applies to the flight instructor certificate only.' };
     const doc = docs.find((d) => d.cert === cert && d.category === cat);
     if (!doc) return { error: 'No ACS or PTS on file for this certificate and category.' };
     return { doc };
@@ -54,6 +58,87 @@
     const sea = profile.cls === 'ASES' || profile.cls === 'AMES';
     return { kind, table: t, sea };
   }
+  // ---------- knowledge tests (FAA Airman Knowledge Testing Matrix) ----------
+  const KT_CATALOG = { PAR: 'Private Pilot Airplane', PAT: 'Private Pilot Airplane/Recreational Pilot – Transition', PRH: 'Private Pilot Helicopter', PHT: 'Private Pilot Helicopter/Recreational Pilot – Transition', PCP: 'Private Pilot Airplane Canadian Conversion', PFB: 'Private Pilot Airplane Foreign Pilot via BASA (61.71)',
+    IRA: 'Instrument Rating Airplane', IRH: 'Instrument Rating Helicopter', IFP: 'Instrument Rating Foreign Pilot via Non-BASA (61.75)', IFB: 'Instrument Rating Foreign Pilot via BASA (61.71)', ICP: 'Instrument Rating Airplane Canadian Conversion',
+    CAX: 'Commercial Pilot Airplane', CRH: 'Commercial Pilot Helicopter', CCP: 'Commercial Pilot Airplane Canadian Conversion', MCN: 'Military Competence Non-Category',
+    ATM: 'Airline Transport Pilot Multiengine Airplane', ATS: 'Airline Transport Pilot Single Engine Airplane (135)', ATH: 'Airline Transport Pilot Helicopter (135)', ARH: 'Airline Transport Pilot Helicopter (135) (Added Rating)',
+    FOI: 'Fundamentals of Instructing', FIA: 'Flight Instructor Airplane', AFA: 'Flight Instructor Airplane (Added Rating)', FRH: 'Flight Instructor Helicopter', HFA: 'Flight Instructor Helicopter (Added Rating)',
+    FII: 'Flight Instructor Instrument Airplane', AIF: 'Flight Instructor Instrument Airplane (Added Rating)', FIH: 'Flight Instructor Instrument Helicopter', HIF: 'Flight Instructor Instrument Helicopter (Added Rating)', MCI: 'Military Competence Instructor' };
+  // Normalise the applicant knowledge_test field. Older records hold one test; newer ones hold tests[].
+  function ktTests(kt) {
+    kt = kt || {};
+    if (Array.isArray(kt.tests)) return kt.tests.filter((t) => t && (t.test || t.date || (t.aktr || []).length));
+    return kt.test || kt.date || (kt.aktr || []).length ? [{ test: kt.test || '', date: kt.date || '', score: kt.score || '', expires: kt.expires || '', aktr: kt.aktr || [] }] : [];
+  }
+  const ktCode = (t) => String((t && t.test) || '').trim().toUpperCase().split(/[\s–-]/)[0];
+  // Last day of the calendar month N months after the test month (61.39(a)(1): 24 months; 61.39(b): ATM 60 months).
+  function ktValidUntil(code, date) {
+    if (!date || !/^\d{4}-\d{2}/.test(date)) return '';
+    const n = String(code || '').toUpperCase() === 'ATM' ? 60 : 24; const y = +date.slice(0, 4), m = +date.slice(5, 7) - 1 + n;
+    const d = new Date(Date.UTC(y, m + 1, 0)); return d.toISOString().slice(0, 10);
+  }
+  // Typical knowledge test(s) for the checkride. Advisory: confirm against the ACS/PTS knowledge test table and part 61.
+  function ktExpected(profile, doc) {
+    const p = profile || {}; const heli = p.cls === 'RH'; const multi = p.cls === 'AMEL' || p.cls === 'AMES';
+    if (['type_rating', 'retest', 'continuation', 'reinstatement', 'mock_checkride', 'training'].includes(p.purpose) || p.typeDesignator) return { tests: [], note: 'No new knowledge test is normally required for this kind of test; the original test report applies where relevant.' };
+    const add = p.purpose === 'added_rating';
+    const any = (codes, label) => ({ anyOf: codes, label: label || codes.join(' or ') });
+    switch (p.cert) {
+      case 'private': return add ? { tests: [], note: 'No knowledge test is required to add a category or class at the same certificate level (61.63(b)–(c)).' } : { tests: [heli ? any(['PRH', 'PHT']) : any(['PAR', 'PAT'])] };
+      case 'commercial': return add ? { tests: [], note: 'No knowledge test is required to add a category or class at the same certificate level (61.63(b)–(c)).' } : { tests: [heli ? any(['CRH']) : any(['CAX'])] };
+      case 'instrument': return { tests: [heli ? any(['IRH']) : any(['IRA', 'IFP', 'IFB'])] };
+      case 'atp': return add ? (heli ? { tests: [any(['ARH', 'ATH'])] } : { tests: [], note: 'Adding an airplane class to an ATP certificate does not normally need a new knowledge test.' }) : { tests: [heli ? any(['ATH']) : multi ? any(['ATM']) : any(['ATS', 'ATM'])] };
+      case 'cfi': return add ? { tests: [heli ? any(['HFA', 'FRH']) : any(['AFA', 'FIA'])], note: 'Added-rating tests apply only when a flight instructor certificate is held.' } : { tests: [any(['FOI'], 'FOI (unless exempt under 61.183(e))'), heli ? any(['FRH']) : any(['FIA'])] };
+      case 'cfii': {
+        const instrHeld = ['IA', 'IH', 'IP'].includes(p.held);
+        if (p.purpose === 'added_rating' && instrHeld) return { tests: [heli ? any(['HIF', 'FIH']) : any(['AIF', 'FII'])] };
+        return { tests: [heli ? any(['FIH']) : any(['FII'])].concat(p.purpose === 'added_rating' ? [] : [any(['FOI'], 'FOI (unless already passed or exempt under 61.183(e))')]) };
+      }
+      default: return { tests: [] };
+    }
+  }
+  function ktCheck(exp, tests, testDate) {
+    const on = (tests || []).map((t) => Object.assign({}, t, { code: ktCode(t), until: t.expires || ktValidUntil(ktCode(t), t.date) }));
+    const day = testDate || new Date().toISOString().slice(0, 10);
+    const miss = [], expired = [], ok = [];
+    (exp.tests || []).forEach((e) => { const hit = on.filter((t) => e.anyOf.includes(t.code)); if (!hit.length) miss.push(e.label); else { const good = hit.find((t) => !t.until || t.until >= day); if (good) ok.push(good.code); else expired.push(hit[0].code + ' (expired ' + hit[0].until + ')'); } });
+    const extra = on.filter((t) => t.code && !ok.includes(t.code)).map((t) => t.code);
+    const parts = [];
+    if (ok.length) parts.push('On file and current: ' + ok.join(', ') + '.');
+    if (miss.length) parts.push('Not on file: ' + miss.join('; ') + '.');
+    if (expired.length) parts.push('Expired: ' + expired.join(', ') + '.');
+    if (!(exp.tests || []).length) parts.push(exp.note || 'No knowledge test expected for this checkride.');
+    else if (exp.note) parts.push(exp.note);
+    if (extra.length && (exp.tests || []).length) parts.push('Other tests on file: ' + extra.join(', ') + '.');
+    parts.push('Typical requirement shown; confirm against the knowledge test table in the standard.');
+    return { status: miss.length || expired.length ? 'review' : 'met', text: parts.join(' '), ok, miss, expired };
+  }
+  // PTS task selection written as rules from the Area of Operation notes (FAA-S-8081-9E).
+  function ruleSet(doc, profile) {
+    const r = doc.select_rules; if (!r) return null;
+    const kind = profile.purpose === 'reinstatement' ? 'reinstatement' : profile.purpose === 'added_rating' ? 'add' : 'initial';
+    const t = kind === 'add' ? (profile.held && r.add_by_held[profile.held]) || null : r[kind];
+    return t ? { kind, table: t } : null;
+  }
+  function rulePicks(area, rule, profile, usage, rand, pinned) {
+    const picks = {}; if (!rule || rule.none) return picks;
+    const multi = profile.cls === 'AMEL' || profile.cls === 'AMES';
+    const fits = (l) => { const tk = area.tasks.find((x) => x.letter === l); return tk && (!tk.classes || tk.classes.includes(profile.cls)); };
+    const note = 'Area of Operation note';
+    (rule.only || []).filter(fits).forEach((l) => { picks[l] = 'Listed as mandatory in the Addition of an Instrument Instructor Rating table'; });
+    (rule.must || []).filter(fits).forEach((l) => { picks[l] = 'Required by the ' + note; });
+    const one = (g, why) => { g = g.filter(fits).filter((l) => !picks[l]); if (!g.length) return; const l = pickGroup(g, area, usage, rand, pinned); picks[l] = g.length > 1 ? why + ': chosen from ' + g.map((x) => area.roman + '.' + x).join(' / ') : why; };
+    if (rule.oneOf) one(rule.oneOf, 'One required by the ' + note);
+    (rule.oneOf2 || []).forEach((g) => one(g, 'One required by the instrument instructor table'));
+    if (rule.multiOneOf && multi) one(rule.multiOneOf, 'Mandatory when a multiengine airplane is used (' + note + ')');
+    for (let i = 0; i < (rule.plus || 0); i++) {
+      const pool = area.tasks.map((x) => x.letter).filter((l) => fits(l) && !picks[l] && !(rule.multiOneOf && rule.multiOneOf.includes(l) && !multi));
+      if (!pool.length) break; const l = pickGroup(pool, area, usage, rand, pinned);
+      picks[l] = (rule.must || rule.only ? 'Additional task required by the ' : 'Task required by the ') + note + (pool.length > 1 ? ' (chosen from ' + pool.length + ')' : '');
+    }
+    return picks;
+  }
   function pickGroup(group, area, usage, rand, pinned) {
     if (group.length === 1) return group[0];
     const p = group.find((l) => pinned && pinned.has(area.roman + '.' + l)); if (p) return p;
@@ -72,10 +157,13 @@
       addl = doc.additional_rating[cls][profile.held] || null;
     }
     const mx = doc.cert === 'cfi' ? cfiMatrix(doc, profile) : null;
+    const rs = ruleSet(doc, profile);
+    const RK = { initial: 'initial instrument instructor rating', add: 'instrument instructor rating added to a flight instructor certificate', reinstatement: 'renewal or reinstatement' };
     const usage = opts.usage || {}; const rand = opts.rand || Math.random; const pinned = (opts.pinned || profile.cfiPicks) ? new Set(opts.pinned || profile.cfiPicks) : null;
     const KIND = { initial: 'initial certificate', add: 'added class rating', reinstatement: 'reinstatement' };
     for (const area of doc.areas) {
       let picks = null;
+      if (rs) picks = rulePicks(area, rs.table[area.roman], profile, usage, rand, pinned);
       if (mx) {
         const fits = (l) => { const tk = area.tasks.find((x) => x.letter === l); return tk && (!isAirplane || !tk.classes || tk.classes.includes(cls)); };
         const groups = (mx.table[area.roman] || []).map((g) => g.filter(fits)).filter((g) => g.length);
@@ -84,11 +172,14 @@
       }
       for (const task of area.tasks) {
         let req = true; let reason = 'Required for the certificate/rating sought';
-        if (picks) {
+        if (picks && rs) {
+          if (picks[task.letter]) reason = picks[task.letter] + ' for an ' + RK[rs.kind] + ' (' + doc.num + ')';
+          else { req = false; const ru = rs.table[area.roman]; reason = (ru && !ru.none ? 'Not selected' : 'Area not required') + ' for an ' + RK[rs.kind] + ' (' + doc.num + ')'; }
+        } else if (picks) {
           if (picks[task.letter]) reason = picks[task.letter] + ' for a flight instructor ' + KIND[mx.kind] + ' (' + profile.cls + ') per the Area of Operation note in ' + doc.num;
           else { req = false; reason = (Object.keys(picks).length ? 'Not selected' : 'Area not required') + ' for a flight instructor ' + KIND[mx.kind] + ' (' + profile.cls + ') per the Area of Operation note in ' + doc.num; }
         }
-        if (isAirplane && task.classes && !task.classes.includes(cls)) { req = false; reason = 'Applies only to ' + task.classes.join(', '); }
+        if ((isAirplane || rs) && task.classes && !task.classes.includes(cls)) { req = false; reason = 'Applies only to ' + task.classes.join(', '); }
         if (req && doc.id === 'acs11a' && task.flags.includes('ATP') && profile.purpose === 'type_rating' && !profile.atpCert) { req = false; reason = 'ATP certificate only — not required for an aircraft type rating alone'; }
         if (req && addl && !picks) {
           const c = addl[area.roman];
@@ -284,7 +375,7 @@
 
     push('cfr_61_43', null, '14 CFR 61.43(a)(1)', 'https://www.ecfr.gov/current/title-14/chapter-I/subchapter-D/part-61/section-61.43', missing.length ? 'gap' : 'met',
       missing.length ? missing.length + ' required task(s) not in the plan: ' + missing.map((t) => t.key).join(', ') : 'All ' + req.length + ' required tasks from ' + doc.num + ' are in the plan.');
-    push('poa_all', isACS ? 'acs_poa' : 'o895d_ms_i', isACS ? doc.num + ', Introduction' : 'FAA Order 8000.95D', isACS ? stdUrl : null, missing.length ? 'gap' : 'met',
+    push('poa_all', isACS ? 'acs_poa' : 'o895d_ms_i', isACS ? doc.num + ', Introduction' : 'FAA Order 8000.95E', isACS ? stdUrl : null, missing.length ? 'gap' : 'met',
       req.length + ' required tasks across ' + new Set(req.map((t) => t.area.roman)).size + ' Areas of Operation; ' + (req.length - missing.length) + ' included.');
     if (isACS && doc.category === 'airplane') {
       const wrong = Array.from(included).map((k) => ctx.tasks.find((t) => t.key === k)).filter((t) => t && t.task.classes && !t.task.classes.includes(profile.cls));
@@ -299,7 +390,15 @@
       const m = cfiMatrix(doc, profile);
       push('cfi_areas', 'acs_poa', doc.num + ', Areas of Operation notes', stdUrl, m ? 'met' : 'review', m ? 'Tasks follow the Area of Operation notes for a flight instructor ' + m.kind + ' (' + profile.cls + '), with one task chosen where the note allows a choice.' : 'No flight instructor task selection on file for this class; all tasks treated as required. Confirm with the standard.');
     }
-    if (profile.purpose === 'added_rating' && !(doc.cert === 'cfi')) {
+    if (doc.select_rules) {
+      const rs = ruleSet(doc, profile);
+      push('cfi_areas', 'o895d_ms_i', doc.num + ', Area of Operation notes', stdUrl, rs ? 'met' : 'review', rs ? 'Tasks follow the ' + doc.num + ' Area of Operation notes' + (rs.kind === 'add' ? ' and the Addition of an Instrument Instructor Rating table (' + profile.held + ' held)' : rs.kind === 'reinstatement' ? ' and the renewal or reinstatement table' : '') + ' for ' + profile.cls + '.' : 'Select the instructor rating held so the add-on table can be applied; all tasks are treated as required.');
+    }
+    if (ctx.ktests) {
+      const k = ktCheck(ktExpected(profile, doc), ctx.ktests, ctx.testDate);
+      push('ktest', null, '14 CFR 61.39(a)(1)', 'https://www.ecfr.gov/current/title-14/chapter-I/subchapter-D/part-61/section-61.39', k.status, k.text);
+    }
+    if (profile.purpose === 'added_rating' && !(doc.cert === 'cfi') && !doc.select_rules) {
       const tbl = doc.additional_rating && doc.additional_rating[profile.cls] && doc.additional_rating[profile.cls][profile.held];
       push('addl', null, doc.num + ', Additional Rating Task Table', stdUrl, tbl ? 'met' : 'review',
         tbl ? 'Required tasks were taken from the Additional Rating Task Table for adding ' + profile.cls + ' with ' + profile.held + ' held.' : 'No Additional Rating Task Table entry for this combination; all tasks are treated as required. Confirm with the standard.');
@@ -327,20 +426,20 @@
         (ctx.aktr || []).length ? (aMiss.length ? 'AKTR codes not yet in the plan: ' + aMiss.join(', ') : aktrInScope.length + ' AKTR code(s) in scope, all included.' + ((ctx.aktr || []).length > aktrInScope.length ? ' ' + ((ctx.aktr || []).length - aktrInScope.length) + ' code(s) belong to tasks not on this test.' : '')) : 'No AKTR deficiency codes recorded for this applicant. Record them on the applicant if the knowledge test report lists any.');
     } else {
       const ack = !!(content.attest && content.attest.special_emphasis);
-      push('sei', 'o895d_pm_b', 'FAA Order 8000.95D', null, ack ? 'attested' : 'gap', ack ? 'Examiner attests special emphasis items will be evaluated throughout the test.' : 'Confirm special emphasis items on the Review step.');
+      push('sei', 'o895d_pm_b', 'FAA Order 8000.95E', null, ack ? 'attested' : 'gap', ack ? 'Examiner attests special emphasis items will be evaluated throughout the test.' : 'Confirm special emphasis items on the Review step.');
     }
-    push('written', 'o895d_pm_a', 'FAA Order 8000.95D', null, 'met', 'This written plan of action was prepared for this applicant using ' + doc.num + '.');
+    push('written', 'o895d_pm_a', 'FAA Order 8000.95E', null, 'met', 'This written plan of action was prepared for this applicant using ' + doc.num + '.');
     const cov = scenarioCoverage(ctx.tasks, content.scenario || {});
     const pct = cov.total ? Math.round(100 * cov.covered.length / cov.total) : 0;
     const hasMission = content.scenario && content.scenario.mission && content.scenario.mission.trim().length > 30;
-    push('scenario', 'o895d_ms_ii', 'FAA Order 8000.95D', null, !hasMission ? 'gap' : pct >= 50 ? 'met' : 'review',
+    push('scenario', 'o895d_ms_ii', 'FAA Order 8000.95E', null, !hasMission ? 'gap' : pct >= 50 ? 'met' : 'review',
       hasMission ? 'Scenario with ' + ((content.scenario.triggers || []).length) + ' planned event(s) covers ' + cov.covered.length + ' of ' + cov.total + ' required tasks (' + pct + '%).' : 'No scenario written yet.');
     const qs = content.questions || [];
     const scen = qs.filter((q) => q.portion === 'scenario' || /scenario/i.test(q.prompt)).length;
-    push('sbt', 'o895d_pm_c', 'FAA Order 8000.95D', null, qs.length && scen ? 'met' : 'review', qs.length + ' planned question(s)/prompts; ' + scen + ' scenario-based.');
+    push('sbt', 'o895d_pm_c', 'FAA Order 8000.95E', null, qs.length && scen ? 'met' : 'review', qs.length + ' planned question(s)/prompts; ' + scen + ' scenario-based.');
     const b = content.briefings || {};
     const bOk = ['pretest', 'preflight', 'postflight'].filter((k) => b[k] && b[k].trim().length > 20);
-    push('brief', 'o895d_ms_iii', 'FAA Order 8000.95D', null, bOk.length === 3 ? 'met' : 'gap', 'Briefings present: ' + (bOk.length ? bOk.join(', ') : 'none') + '.');
+    push('brief', 'o895d_ms_iii', 'FAA Order 8000.95E', null, bOk.length === 3 ? 'met' : 'gap', 'Briefings present: ' + (bOk.length ? bOk.join(', ') : 'none') + '.');
     // uniqueness vs prior plans
     const mine = new Set(Object.keys(content.tasks || {}).flatMap((k) => (content.tasks[k].included ? (content.tasks[k].elements || []) : [])));
     let maxSim = 0, maxTitle = '';
@@ -350,9 +449,9 @@
       if (p.content && p.content.scenario && content.scenario && p.content.scenario.mission && p.content.scenario.mission === content.scenario.mission) s = Math.max(s, 0.95);
       if (s > maxSim) { maxSim = s; maxTitle = p.title || ''; }
     });
-    push('unique', 'o895d_ms_8', 'FAA Order 8000.95D', null, maxSim > 0.9 ? 'review' : 'met',
+    push('unique', 'o895d_ms_8', 'FAA Order 8000.95E', null, maxSim > 0.9 ? 'review' : 'met',
       (ctx.priorPoas || []).length ? 'Highest overlap with your previous ' + (ctx.priorPoas || []).length + ' plan(s): ' + Math.round(maxSim * 100) + '%' + (maxTitle ? ' (' + maxTitle + ')' : '') + '. Plans above 90% are flagged.' : 'No earlier plans to compare.');
-    push('current', 'o895d_current', 'FAA Order 8000.95D', null, ctx.docStatus === 'current' ? 'met' : 'review',
+    push('current', 'o895d_current', 'FAA Order 8000.95E', null, ctx.docStatus === 'current' ? 'met' : 'review',
       doc.num + ' (' + (doc.edition_date || '') + ') status in smartPOA source registry: ' + (ctx.docStatus || 'unknown') + (ctx.lastCheck ? '; last FAA file check ' + ctx.lastCheck : '') + '.');
     const el = content.eligibility || {};
     const elItems = ['identity', 'iacra', 'knowledge', 'endorsements', 'experience', 'medical'];
@@ -432,6 +531,6 @@
     ].join('\n'),
   };
 
-  root.SPE = { elementClasses, elementApplies, CLASS_LABEL, CERT_LABEL, PURPOSE_LABEL, HELD_OPTIONS, resolveStandard, requiredTasks, selectElements, elementCodes, taskKey,
+  root.SPE = { KT_CATALOG, ktTests, ktCode, ktValidUntil, ktExpected, ktCheck, ruleSet, elementClasses, elementApplies, CLASS_LABEL, CERT_LABEL, PURPOSE_LABEL, HELD_OPTIONS, resolveStandard, requiredTasks, selectElements, elementCodes, taskKey,
     missionsFor, scenarioProfile, cfiMatrix, TRIGGERS, triggersFor, triggerCovers, scenarioCoverage, questionFor, complianceChecks, DEFAULT_BRIEFINGS, categoryOfClass, similarity };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -1,6 +1,98 @@
 {
-  "version": "0.2.5",
+  "version": "0.2.6",
   "releases": [
+    {
+      "version": "0.2.6",
+      "date": "2026-11-17",
+      "title": "Test timing, CFII, knowledge tests and AI scenarios",
+      "items": [
+        {
+          "text": "The plan button is now Start Test.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        },
+        {
+          "text": "Debrief timing: Oral is now Ground, and both Ground and Flight are entered as HH:MM, for example 01:35.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        },
+        {
+          "text": "Timers now count seconds and turn red with a blinking dot while running. Tap Stop to record the time; starting the flight timer stops the ground timer.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        },
+        {
+          "text": "Hobbs start and Hobbs end fields for the flight portion. When both are entered, flight time fills in automatically. They print on the result and paper grade sheet.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        },
+        {
+          "text": "Every new plan gets an AI scenario. The first time you open the Scenario step, smartPOA drafts the mission, then a scenario for every included task, oral tasks included. Each task scenario comes with two or three sub-scenarios that change one condition. Review and edit before finalizing.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        },
+        {
+          "text": "All seeded question bank questions have been reviewed and approved.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        },
+        {
+          "text": "Questions step: each task gets three questions, one easy (softball), one medium and one hard, each on a different element where possible. They come from your approved bank first, and AI fills only the levels the bank is missing. You can change the level of any question, pick again, or add your own.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        },
+        {
+          "text": "Flight Instructor Instrument (CFII) plans now use FAA-S-8081-9E for airplane and helicopter. Required tasks follow the PTS Area of Operation notes for an initial rating, an add-on to a flight instructor or instrument instructor certificate, and renewal or reinstatement.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        },
+        {
+          "text": "Applicants can have more than one knowledge test, for example FOI and FIA, with their own date, score, valid-until date and AKTR codes. Valid-until fills in from 61.39. New plans check the tests on file against the checkride and add every AKTR code.",
+          "roles": [
+            "org_admin",
+            "examiner",
+            "office"
+          ]
+        },
+        {
+          "text": "Settings, Pre-test checklists: when a test type has no checklist, Draft with AI writes the endorsements and experience lists for you to check and save.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        },
+        {
+          "text": "Clearer purpose names: Initial issuance (new certificate or rating) and Additional category or class (added to a certificate held), with a short explanation under the Purpose field.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        },
+        {
+          "text": "Compliance quotes now cite FAA Order 8000.95E (issued September 15, 2026), which replaced 8000.95D. The quoted wording is unchanged. Thanks to Joe for the report.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        }
+      ]
+    },
     {
       "version": "0.2.5",
       "date": "2026-11-17",

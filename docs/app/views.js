@@ -35,19 +35,30 @@
     const locked = d.status === 'signed' || !can('org_admin', 'examiner');
     const tasks = E.requiredTasks(doc, p.test_profile).filter((t) => p.content.tasks[t.key] && p.content.tasks[t.key].included);
     d.results = d.results || {};
+    if (locked) { const fix = (st, en, m) => en || (st ? new Date(new Date(st).getTime() + (m || 0) * 60000).toISOString() : null);
+      d.ground_end = fix(d.ground_start, d.ground_end, d.oral_minutes); d.flight_end = fix(d.flight_start, d.flight_end, d.flight_minutes != null ? d.flight_minutes : Math.round((d.flight_hours || 0) * 60)); }
     let saveT;
     const unsat = () => { const s = new Set(); tasks.forEach((t) => { const r = d.results[t.key]; if (r && r.grade === 'U') (r.codes || []).forEach((x) => s.add(x)); }); return Array.from(s); };
     const save = () => {
       if (locked) return; clearTimeout(saveT);
       const st = qs('#dbSave', c); if (st) st.textContent = 'Saving…';
       saveT = setTimeout(async () => {
-        const patch = { results: d.results, outcome: d.outcome || null, unsat_codes: unsat(), remarks: d.remarks || null, oral_minutes: d.oral_minutes || null, flight_hours: d.flight_hours || null, ground_start: d.ground_start || null, flight_start: d.flight_start || null, test_date: d.test_date || null, entry_mode: d.entry_mode };
+        const patch = { results: d.results, outcome: d.outcome || null, unsat_codes: unsat(), remarks: d.remarks || null, oral_minutes: d.oral_minutes ?? null, flight_hours: d.flight_hours ?? null, flight_minutes: d.flight_minutes ?? null, ground_start: d.ground_start || null, flight_start: d.flight_start || null, ground_end: d.ground_end || null, flight_end: d.flight_end || null, hobbs_start: d.hobbs_start ?? null, hobbs_end: d.hobbs_end ?? null, test_date: d.test_date || null, entry_mode: d.entry_mode };
         const qq = queue(); qq[d.id] = patch; localStorage.setItem(QKEY, JSON.stringify(qq));
         if (!navigator.onLine) { if (qs('#dbSave', c)) qs('#dbSave', c).textContent = 'Offline — saved on this device'; return; }
         try { await q(sb.from('debriefs').update(patch).eq('id', d.id)); const n = queue(); delete n[d.id]; localStorage.setItem(QKEY, JSON.stringify(n)); if (qs('#dbSave', c)) qs('#dbSave', c).textContent = 'Saved ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
         catch (e) { if (qs('#dbSave', c)) qs('#dbSave', c).textContent = 'Saved on this device; will retry'; }
       }, 500);
     };
+    const pad = (n) => String(n).padStart(2, '0');
+    const hhmm = (m) => m == null || m === '' || isNaN(m) ? '' : pad(Math.floor(m / 60)) + ':' + pad(Math.round(m) % 60);
+    const parseHM = (v) => { v = String(v || '').trim(); if (!v) return null; let m = v.match(/^(\d{1,2}):([0-5]\d)$/); if (m) return +m[1] * 60 + +m[2];
+      m = v.match(/^(\d{1,2})([0-5]\d)$/); if (m && v.length >= 3) return +m[1] * 60 + +m[2]; return undefined; };
+    const clock = (st, en) => { if (!st) return '00:00:00'; const t = Math.max(0, Math.floor(((en ? new Date(en) : Date.now()) - new Date(st)) / 1000)); return pad(Math.floor(t / 3600)) + ':' + pad(Math.floor(t / 60) % 60) + ':' + pad(t % 60); };
+    const mins = (st, en) => Math.max(0, Math.round(((en ? new Date(en) : Date.now()) - new Date(st)) / 60000));
+    const hobbs = () => (d.hobbs_start != null && d.hobbs_end != null && +d.hobbs_end >= +d.hobbs_start) ? Math.round((+d.hobbs_end - +d.hobbs_start) * 10) / 10 : null;
+    const hobbsNote = () => { const h = hobbs(); if (d.hobbs_start != null && d.hobbs_end != null && h == null) return 'Hobbs end must be at or above Hobbs start.'; return h != null ? 'Hobbs ' + h.toFixed(1) + ' hours = ' + hhmm(Math.round(h * 60)) + ' flight time.' : 'Enter Hobbs start and end to fill flight time automatically.'; };
+    const setFlight = (m) => { d.flight_minutes = m; d.flight_hours = m == null ? null : Math.round(m / 6) / 10; };
     const graded = () => tasks.filter((t) => d.results[t.key] && d.results[t.key].grade).length;
     // Expandable task detail: the quoted standard for what was planned, so the examiner can grade against it.
     const openK = new Set();
@@ -68,7 +79,7 @@
         ${notes.length ? `<div class="db-sec"><div class="xs strong">Task notes</div>${notes.map((n) => `<blockquote class="sm">${esc(typeof n === 'string' ? n : n.text || '')}</blockquote>`).join('')}</div>` : ''}
         ${groups.length ? groups.map((g) => `<div class="db-sec"><div class="xs strong">${esc(LEAD[g.ty])}</div><ul class="db-els">${g.list.map(({ e, ref }) => { const par = parentOf(e); const na = !E.elementApplies(doc, t.task, e, p.test_profile.cls);
           return `<li><span class="mono xs">${esc(ref)}</span> ${par ? `<span class="muted sm">${esc(par.text)} </span>` : ''}<span class="sm">${esc(e.text)}</span>${na ? ' <span class="pill warn">Not for ' + esc(p.test_profile.cls) + ' — not graded</span>' : ''}</li>`; }).join('')}</ul></div>`).join('') : '<div class="sm muted">No elements were selected for this task.</div>'}
-        ${qsT.length ? `<div class="db-sec"><div class="xs strong">Planned questions (${qsT.length})</div><ol class="db-qs">${qsT.map((x) => `<li class="sm">${esc(x.prompt)}${x.expected ? `<div class="xs muted">Expected: ${esc(x.expected)}</div>` : ''}</li>`).join('')}</ol></div>` : ''}
+        ${qsT.length ? `<div class="db-sec"><div class="xs strong">Planned questions (${qsT.length})</div><ol class="db-qs">${qsT.slice().sort((a, b) => (a.level || 9) - (b.level || 9)).map((x) => `<li class="sm">${x.level ? `<span class="pill ${x.level === 3 ? 'bad' : x.level === 2 ? 'warn' : 'ok'}">${['', 'Easy', 'Medium', 'Hard'][x.level]}</span> ` : ''}${esc(x.prompt)}${x.expected ? `<div class="xs muted">Expected: ${esc(x.expected)}</div>` : ''}</li>`).join('')}</ol></div>` : ''}
         <div class="xs muted">Quoted from ${doc.url ? `<a href="${esc(doc.url)}" target="_blank" rel="noopener">${esc(doc.num)}</a>` : esc(doc.num)}. Grade against the current FAA document.</div></div>`;
     };
     const elapsed = (iso) => { if (!iso) return '—'; const s = Math.max(0, Math.floor((Date.now() - new Date(iso)) / 1000)); return String(Math.floor(s / 3600)).padStart(2, '0') + ':' + String(Math.floor(s / 60) % 60).padStart(2, '0'); };
@@ -81,10 +92,18 @@
         (d.status === 'signed' ? `<div class="banner ok">Signed ${fmtDT(d.signed_at)}. Fingerprint <span class="mono">${esc((d.signed_hash || '').slice(0, 20))}…</span>. This record is locked.</div>` : '') +
         `<div class="card"><div class="form-grid3"><label>Entry mode<select id="mode" ${locked ? 'disabled' : ''}><option value="tablet" ${d.entry_mode === 'tablet' ? 'selected' : ''}>Tablet (live)</option><option value="paper" ${d.entry_mode === 'paper' ? 'selected' : ''}>Transcribed from paper</option></select></label>
           <label>Test date<input type="date" id="tdate" value="${esc(d.test_date)}" ${locked ? 'disabled' : ''}></label><div><div class="xs muted" style="margin-bottom:.3rem">Progress</div><div class="meter"><i style="width:${tasks.length ? Math.round(100 * g / tasks.length) : 0}%"></i></div><div class="xs">${g} of ${tasks.length} tasks graded</div></div></div>
-          <div class="btn-row"><div class="timer"><span class="xs muted">Ground</span> <b id="tg">${elapsed(d.ground_start)}</b> ${locked ? '' : `<button class="btn ghost sm" id="sg">${d.ground_start ? 'Restart' : 'Start'}</button>`}</div>
-          <div class="timer"><span class="xs muted">Flight</span> <b id="tf">${elapsed(d.flight_start)}</b> ${locked ? '' : `<button class="btn ghost sm" id="sf">${d.flight_start ? 'Restart' : 'Start'}</button>`}</div>
-          <label style="margin:0;max-width:150px">Oral (minutes)<input id="om" inputmode="numeric" value="${esc(d.oral_minutes)}" ${locked ? 'disabled' : ''}></label><label style="margin:0;max-width:150px">Flight (hours)<input id="fh" inputmode="decimal" value="${esc(d.flight_hours)}" ${locked ? 'disabled' : ''}></label>
-          <span style="flex:1"></span><span class="xs muted" id="dbSave">${navigator.onLine ? '' : 'Offline — changes stay on this device'}</span></div></div>
+          <div class="db-time">
+            ${['g', 'f'].map((w) => { const st = w === 'g' ? d.ground_start : d.flight_start, en = w === 'g' ? d.ground_end : d.flight_end; const run = st && !en;
+              return `<div class="timer${run ? ' running' : ''}" id="tm${w}"><span class="xs muted">${w === 'g' ? 'Ground' : 'Flight'}</span> <span class="rec" aria-hidden="true"></span><b class="mono" id="t${w}">${clock(st, en)}</b>
+                <span class="xs run-lbl">${run ? 'Running' : st ? 'Stopped' : ''}</span>${locked ? '' : run ? `<button class="btn sm" id="x${w}">Stop</button>` : `<button class="btn ghost sm" id="s${w}">${st ? 'Restart' : 'Start'}</button>`}</div>`; }).join('')}
+          </div>
+          <div class="form-grid4 db-dur">
+            <label>Ground (HH:MM)<input id="om" inputmode="numeric" placeholder="00:00" value="${esc(hhmm(d.oral_minutes))}" ${locked ? 'disabled' : ''}></label>
+            <label>Flight (HH:MM)<input id="fh" inputmode="numeric" placeholder="00:00" value="${esc(hhmm(d.flight_minutes != null ? d.flight_minutes : d.flight_hours != null ? Math.round(d.flight_hours * 60) : null))}" ${locked ? 'disabled' : ''}></label>
+            <label>Hobbs start<input id="hs" inputmode="decimal" placeholder="0000.0" value="${esc(d.hobbs_start != null ? Number(d.hobbs_start).toFixed(1) : '')}" ${locked ? 'disabled' : ''}></label>
+            <label>Hobbs end<input id="he" inputmode="decimal" placeholder="0000.0" value="${esc(d.hobbs_end != null ? Number(d.hobbs_end).toFixed(1) : '')}" ${locked ? 'disabled' : ''}></label>
+          </div>
+          <div class="btn-row" style="margin-top:.2rem"><span class="xs muted" id="hobbsNote">${hobbsNote()}</span><span style="flex:1"></span><span class="xs muted" id="dbSave">${navigator.onLine ? '' : 'Offline — changes stay on this device'}</span></div></div>
         <div class="btn-row" style="justify-content:flex-end;margin:-.2rem 0 .6rem"><button type="button" class="btn ghost sm" id="dbExp">${openK.size >= tasks.length ? 'Collapse all' : 'Expand all'}</button></div>
         ${byArea.map(({ area, list }) => `<div class="card"><h2><span class="mono muted">${area.roman}.</span> ${esc(area.title)}</h2>${list.map((t) => {
           const r = d.results[t.key] || {}; const ct = p.content.tasks[t.key];
@@ -108,10 +127,22 @@
       if (locked) return;
       qs('#mode', c).onchange = (e) => { d.entry_mode = e.target.value; save(); };
       qs('#tdate', c).onchange = (e) => { d.test_date = e.target.value; save(); };
-      qs('#om', c).oninput = (e) => { d.oral_minutes = parseInt(e.target.value, 10) || null; save(); };
-      qs('#fh', c).oninput = (e) => { d.flight_hours = parseFloat(e.target.value) || null; save(); };
-      qs('#sg', c).onclick = () => { d.ground_start = new Date().toISOString(); save(); render(); };
-      qs('#sf', c).onclick = () => { if (d.ground_start && !d.oral_minutes) d.oral_minutes = Math.round((Date.now() - new Date(d.ground_start)) / 60000); d.flight_start = new Date().toISOString(); save(); render(); };
+      const hm = (id, set) => { const inp = qs(id, c); inp.oninput = () => { const v = parseHM(inp.value); inp.classList.toggle('bad', v === undefined); if (v !== undefined) { set(v); save(); } };
+        inp.onblur = () => { const v = parseHM(inp.value); if (v !== undefined && v !== null) inp.value = hhmm(v); }; };
+      hm('#om', (v) => { d.oral_minutes = v; });
+      hm('#fh', (v) => { setFlight(v); });
+      const hb = (id, k) => { const inp = qs(id, c); inp.oninput = () => { const t = inp.value.trim(); const v = t === '' ? null : Number(t); const ok = v === null || (Number.isFinite(v) && v >= 0);
+        inp.classList.toggle('bad', !ok); if (!ok) return; d[k] = v === null ? null : Math.round(v * 10) / 10; const h = hobbs(); if (h != null) { setFlight(Math.round(h * 60)); qs('#fh', c).value = hhmm(d.flight_minutes); }
+        qs('#hobbsNote', c).textContent = hobbsNote(); save(); }; inp.onblur = () => { if (d[k] != null) inp.value = Number(d[k]).toFixed(1); }; };
+      hb('#hs', 'hobbs_start'); hb('#he', 'hobbs_end');
+      const rer = () => { save(); const y = window.scrollY; render(); window.scrollTo(0, y); };
+      const startG = async () => { if (d.ground_start && !(await confirmBox('Restart the ground timer?', 'The recorded ground time will be replaced.', 'Restart'))) return; d.ground_start = new Date().toISOString(); d.ground_end = null; rer(); };
+      const stopG = () => { d.ground_end = new Date().toISOString(); d.oral_minutes = mins(d.ground_start, d.ground_end); rer(); };
+      const startF = async () => { if (d.flight_start && !(await confirmBox('Restart the flight timer?', 'The recorded flight time will be replaced.', 'Restart'))) return;
+        if (d.ground_start && !d.ground_end) { d.ground_end = new Date().toISOString(); d.oral_minutes = mins(d.ground_start, d.ground_end); }
+        d.flight_start = new Date().toISOString(); d.flight_end = null; rer(); };
+      const stopF = () => { d.flight_end = new Date().toISOString(); if (hobbs() == null) setFlight(mins(d.flight_start, d.flight_end)); rer(); };
+      [['#sg', startG], ['#xg', stopG], ['#sf', startF], ['#xf', stopF]].forEach(([id, fn]) => { const b = qs(id, c); if (b) b.onclick = fn; });
       qsa('.db-task', c).forEach((el) => {
         const k = el.dataset.k; const r = d.results[k] = d.results[k] || {};
         qsa('[data-g]', el).forEach((b) => b.onclick = () => { r.grade = r.grade === b.dataset.g ? null : b.dataset.g; if (r.grade !== 'U') r.codes = []; save(); const y = window.scrollY; render(); window.scrollTo(0, y); });
@@ -129,14 +160,14 @@
         if (!(await confirmBox('Sign this debrief?', 'The result will be locked and fingerprinted. ' + (ungraded ? ungraded + ' task(s) are not graded. ' : '') + 'This cannot be edited afterwards.', 'Sign and lock'))) return;
         try {
           clearTimeout(saveT);
-          await q(sb.from('debriefs').update({ results: d.results, outcome: d.outcome, unsat_codes: unsat(), remarks: d.remarks || null, oral_minutes: d.oral_minutes || null, flight_hours: d.flight_hours || null, test_date: d.test_date || null, entry_mode: d.entry_mode }).eq('id', d.id));
+          await q(sb.from('debriefs').update({ results: d.results, outcome: d.outcome, unsat_codes: unsat(), remarks: d.remarks || null, oral_minutes: d.oral_minutes ?? null, flight_hours: d.flight_hours ?? null, flight_minutes: d.flight_minutes ?? null, hobbs_start: d.hobbs_start ?? null, hobbs_end: d.hobbs_end ?? null, ground_start: d.ground_start || null, flight_start: d.flight_start || null, ground_end: d.ground_end || (d.ground_start ? new Date().toISOString() : null), flight_end: d.flight_end || (d.flight_start ? new Date().toISOString() : null), test_date: d.test_date || null, entry_mode: d.entry_mode }).eq('id', d.id));
           const n = queue(); delete n[d.id]; localStorage.setItem(QKEY, JSON.stringify(n));
           await act(e.target, () => rpc('sign_debrief', { p_id: d.id }), 'Debrief signed'); A.route();
         } catch (_) {}
       };
     };
     render();
-    const tick = setInterval(() => { const a = qs('#tg', c), b = qs('#tf', c); if (!a) { clearInterval(tick); return; } a.textContent = elapsed(d.ground_start); b.textContent = elapsed(d.flight_start); }, 20000);
+    const tick = setInterval(() => { const a = qs('#tg', c), b = qs('#tf', c); if (!a || !document.body.contains(a)) { clearInterval(tick); return; } a.textContent = clock(d.ground_start, d.ground_end); b.textContent = clock(d.flight_start, d.flight_end); }, 1000);
   }
 
   // ---------- question bank ----------
@@ -266,7 +297,7 @@
       qs('#rep', c).innerHTML = `<div class="kpis"><div class="kpi"><div class="kpi-label">Signed tests</div><div class="kpi-value">${n}</div><div class="kpi-note">${pass} pass · ${fail} disapproved · ${disc} discontinued</div></div>
         <div class="kpi"><div class="kpi-label">Pass rate</div><div class="kpi-value">${pct(pass, pass + fail)}</div><div class="kpi-note">Excludes discontinued</div></div>
         <div class="kpi"><div class="kpi-label">First-time pass</div><div class="kpi-value">${pct(ftp, fl.length)}</div><div class="kpi-note">${ftp} of ${fl.length} first attempts</div></div>
-        <div class="kpi"><div class="kpi-label">Average duration</div><div class="kpi-value">${oral ? (oral / 60).toFixed(1) + 'h' : '—'}</div><div class="kpi-note">Oral${fh ? ' · flight ' + fh.toFixed(1) + 'h' : ''} · ${retests.length} retest(s) · ${mocks.length} mock</div></div></div>
+        <div class="kpi"><div class="kpi-label">Average duration</div><div class="kpi-value">${oral ? String(Math.floor(oral / 60)).padStart(2, '0') + ':' + String(Math.round(oral) % 60).padStart(2, '0') : '—'}</div><div class="kpi-note">Ground (HH:MM)${fh ? ' · flight ' + String(Math.floor(fh * 60 / 60)).padStart(2, '0') + ':' + String(Math.round(fh * 60) % 60).padStart(2, '0') : ''} · ${retests.length} retest(s) · ${mocks.length} mock</div></div></div>
         <div class="grid2"><div class="card"><h2>Outcomes by month</h2>${mk.length ? `<div class="cols">${mk.map((k) => { const m = months[k]; return `<div class="col"><div class="stack" style="height:140px">${['discontinued', 'fail', 'pass'].map((o) => `<i class="o-${o}" style="height:${100 * m[o] / mmax}%" title="${o}: ${m[o]}"></i>`).join('')}</div><span class="xs">${esc(k.slice(2))}</span></div>`; }).join('')}</div><div class="legend xs"><i class="o-pass"></i> Pass <i class="o-fail"></i> Disapproved <i class="o-discontinued"></i> Discontinued</div>` : '<div class="empty sm">No signed results in range.</div>'}</div>
         <div class="card"><h2>By standard</h2>${Object.keys(byStd).length ? `<table class="t"><thead><tr><th>Standard</th><th>Tests</th><th>Pass</th></tr></thead>${Object.entries(byStd).map(([k, v]) => `<tr><td class="sm">${esc(k)}</td><td>${v.n}</td><td>${pct(v.pass, v.n)}</td></tr>`).join('')}</table>` : '<div class="empty sm">No data.</div>'}</div></div>
         <div class="grid2"><div class="card"><h2>Most-missed ACS codes</h2>${codes.length ? `<div class="bars">${codes.slice(0, 12).map(([k, v]) => `<div class="bar"><span class="mono xs">${esc(k)}</span><div><i style="width:${100 * v / codes[0][1]}%"></i></div><b class="xs">${v}</b></div>`).join('')}</div>` : '<div class="empty sm">No unsatisfactory codes recorded.</div>'}</div>
@@ -280,8 +311,9 @@
     qs('#f1', c).onchange = (e) => { from = e.target.value; render(); }; qs('#f2', c).onchange = (e) => { to = e.target.value; render(); };
     qs('#f3', c).onchange = (e) => { cert = e.target.value; render(); }; qs('#f4', c).onchange = (e) => { exam = e.target.value; render(); };
     qs('#csv', c).onclick = () => {
-      const rows = [['test_date', 'applicant', 'recommending_instructor', 'school', 'plan', 'purpose', 'standard', 'outcome', 'unsat_codes', 'oral_minutes', 'flight_hours', 'examiner', 'entry_mode', 'signed_at', 'signed_hash']];
-      (A._repList || []).forEach((d) => { const p = P[d.poa_id] || {}; const a = AP[d.applicant_id] || {}; rows.push([d.test_date, a.last_name ? a.last_name + ', ' + a.first_name : '', a.recommending_instructor, a.school, p.title, p.purpose, (stdDoc(p.standard_id) || {}).num, d.outcome, (d.unsat_codes || []).join(' '), d.oral_minutes, d.flight_hours, mname[d.examiner_id] || '', d.entry_mode, d.signed_at, d.signed_hash]); });
+      const hm2 = (m) => m == null || isNaN(m) ? '' : String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(Math.round(m) % 60).padStart(2, '0');
+      const rows = [['test_date', 'applicant', 'recommending_instructor', 'school', 'plan', 'purpose', 'standard', 'outcome', 'unsat_codes', 'ground_hhmm', 'flight_hhmm', 'hobbs_start', 'hobbs_end', 'examiner', 'entry_mode', 'signed_at', 'signed_hash']];
+      (A._repList || []).forEach((d) => { const p = P[d.poa_id] || {}; const a = AP[d.applicant_id] || {}; rows.push([d.test_date, a.last_name ? a.last_name + ', ' + a.first_name : '', a.recommending_instructor, a.school, p.title, p.purpose, (stdDoc(p.standard_id) || {}).num, d.outcome, (d.unsat_codes || []).join(' '), hm2(d.oral_minutes), hm2(d.flight_minutes != null ? d.flight_minutes : d.flight_hours != null ? Math.round(d.flight_hours * 60) : null), d.hobbs_start, d.hobbs_end, mname[d.examiner_id] || '', d.entry_mode, d.signed_at, d.signed_hash]); });
       const csv = rows.map((r) => r.map((v) => { let s = v == null ? '' : String(v); if (/^[=+\-@]/.test(s)) s = "'" + s; return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(',')).join('\n');
       const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'smartpoa-results-' + today() + '.csv'; a.click();
     };

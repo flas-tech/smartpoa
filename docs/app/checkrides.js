@@ -9,7 +9,7 @@
   const BASES = ['Completion of Test or Activity', 'U.S. Military Competence or Experience', 'Graduate of Approved Course', 'Holder of Foreign License', 'Air Carrier Training Program'];
   const RESULTS = { temporary: 'Temporary Certificate', disapproval: 'Notice of Disapproval', discontinuance: 'Letter of Discontinuance', cancelled: 'Cancelled' };
   const RESULT_PILL = { temporary: 'ok', disapproval: 'bad', discontinuance: 'warn', cancelled: '' };
-  const GRADES = { private: 'Private Pilot', commercial: 'Commercial Pilot', instrument: 'Instrument Rating', cfi: 'Flight Instructor', atp: 'Airline Transport Pilot' };
+  const GRADES = { private: 'Private Pilot', commercial: 'Commercial Pilot', instrument: 'Instrument Rating', cfi: 'Flight Instructor', cfii: 'Flight Instructor Instrument', atp: 'Airline Transport Pilot' };
   const CLASSES = ['ASEL', 'AMEL', 'ASES', 'AMES', 'RH', 'RG'];
   const RETEST_OF = { 'Original Certificate': 'Retest for Original Certificate', 'Additional Rating': 'Retest For Additional Rating', 'Instrument Rating': 'Retest for Instrument Rating' };
   // test type -> plan of action purpose
@@ -226,16 +226,25 @@
         <label>Type of practical test<select name="t">${TEST_TYPES.map((t) => `<option ${t === rq.t ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label></div>
         ${(() => { const cur = briefReqFor(rq.g, rq.t); const exact = cur && cur.test_type === rq.t; return `<p class="xs ${exact ? 'muted' : ''}">${!cur ? '<span class="pill warn">No checklist</span> None exists for this test yet.' : exact ? (cur.org ? 'Organization checklist.' : 'Imported checklist. Saving creates an organization copy.') : '<span class="pill warn">No checklist</span> This test currently falls back to the ' + esc(cur.test_type) + ' list.'} One item per line; start a line with "- " for a sub-item. Leave both boxes empty and save to return to the imported list.</p>
         <div class="form-grid"><label>Endorsements required<textarea name="e" style="min-height:180px">${esc(exact ? cur.endorsements.join('\n') : '')}</textarea></label><label>Aeronautical experience required<textarea name="x" style="min-height:180px">${esc(exact ? cur.experience.join('\n') : '')}</textarea></label></div>`; })()}
-        <div class="btn-row" style="justify-content:flex-end"><button class="btn">Save checklist</button></div></form></div>
+        <div id="aiCk"></div><div class="btn-row" style="justify-content:flex-end"><button type="button" class="btn ghost" id="aiDraft">Draft with AI</button><button class="btn" id="ckSave">Save checklist</button></div></form></div>
         <div class="card"><h2>Default briefing scripts</h2><p class="xs muted">New plans of action start with these scripts. Leave a box empty to use the smartPOA default. {std} is replaced by the standard number.</p>
         <form id="bf">${[['pretest', 'Pretest briefing'], ['preflight', 'Preflight briefing'], ['postflight', 'Postflight debriefing']].map(([k, l]) => `<label>${l}<textarea name="${k}" style="min-height:160px" placeholder="${esc(E.DEFAULT_BRIEFINGS[k].slice(0, 140))}…">${esc(br[k] || '')}</textarea></label>`).join('')}
         <div class="btn-row" style="justify-content:flex-end"><button class="btn">Save briefings</button></div></form></div>`;
       qs('#g', c).onchange = (e) => { grade = e.target.value; render(); };
       const rf = qs('#rf', c); rf.g.onchange = rf.t.onchange = () => { rq.g = rf.g.value; rq.t = rf.t.value; render(); qs('#breq', c).scrollIntoView(); };
+      qs('#aiDraft', c).onclick = async (e) => {
+        if ((rf.e.value.trim() || rf.x.value.trim()) && !(await A.confirmBox('Replace the current text?', 'The endorsements and experience boxes will be replaced with an AI draft. Nothing is saved until you press Save checklist.', 'Replace'))) return;
+        const cur = briefReqFor(rq.g, rq.t); const example = cur ? [].concat(cur.endorsements, cur.experience).slice(0, 40) : [];
+        try {
+          const r = await A.act(e.target, () => ai('pretest_checklist', { grade: GRADES[rq.g] || rq.g, testType: rq.t, example }), null);
+          rf.e.value = (r.endorsements || []).join('\n'); rf.x.value = (r.experience || []).join('\n');
+          qs('#aiCk', c).innerHTML = '<div class="banner warn">AI draft from Grok. Check every line against 14 CFR part 61 and AC 61-65 before you save. Nothing is saved until you press Save checklist.</div>';
+        } catch (_) {}
+      };
       rf.onsubmit = async (e) => { e.preventDefault(); const lines = (v) => v.split('\n').map((x) => x.trim()).filter(Boolean);
         const v = { endorsements: lines(rf.e.value), experience: lines(rf.x.value) }; const all = Object.assign({}, st.brief_req || {});
         if (v.endorsements.length || v.experience.length) all[rq.g + '|' + rq.t] = v; else delete all[rq.g + '|' + rq.t];
-        st.brief_req = all; try { await saveSt(qs('button', rf)); ORGBR = all; render(); qs('#breq', c).scrollIntoView(); } catch (_) {} };
+        st.brief_req = all; try { await saveSt(qs('#ckSave', rf)); ORGBR = all; render(); qs('#breq', c).scrollIntoView(); } catch (_) {} };
       const saveSt = async (b) => { await act(b, () => q(sb.from('orgs').update({ settings: st }).eq('id', S.orgId).select('id').single()), 'Saved'); };
       qs('#pf', c).onsubmit = async (e) => { e.preventDefault(); const f = e.target; const v = {}; PROFILE_FIELDS.forEach(([k]) => { if (f[k].value) v[k] = f[k].value; }); if (f.arrival.value.trim()) v.arrival = f.arrival.value.trim().toUpperCase(); prof[grade] = v; st.scenario_profiles = prof; try { await saveSt(qs('button', f)); } catch (_) {} };
       qs('#sf', c).onsubmit = async (e) => { e.preventDefault(); const f = e.target; const v = {}; STYLE_FIELDS.forEach(([k]) => { if (f[k].value) v[k] = f[k].value; }); if (f.temperature.value) { v.temperatureLabel = f.temperature.value; v.temperature = parseFloat(f.temperature.value); } st.ai_style = v; try { await saveSt(qs('button', f)); } catch (_) {} };
