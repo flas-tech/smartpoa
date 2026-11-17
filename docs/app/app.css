@@ -266,3 +266,10 @@ table.t tr.click { cursor: pointer; } table.t tr.click:hover td { background: #f
 a.kpi-btn { text-decoration: none; color: inherit; display: block; }
 #fbList [data-fb] + [data-fb] { border-top: 1px solid var(--line); }
 #fbList [data-fb] { padding-bottom: .6rem; }
+.upd-bar { position: fixed; left: 50%; bottom: 1rem; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; justify-content: center; background: #10202f; color: #fff; padding: .6rem .8rem .6rem 1rem; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.25); font-size: .86rem; max-width: calc(100vw - 2rem); }
+.upd-bar .btn.ghost { color: #fff; border-color: rgba(255,255,255,.35); background: transparent; }
+.wn-rel { border-top: 1px solid var(--line); padding: .7rem 0; }
+.wn-rel:first-of-type { border-top: 0; }
+.wn-head { display: flex; justify-content: space-between; gap: .6rem; flex-wrap: wrap; align-items: baseline; }
+.wn-rel ul { margin: .4rem 0 0; padding-left: 1.1rem; font-size: .88rem; }
+.wn-rel li { margin: .25rem 0; }

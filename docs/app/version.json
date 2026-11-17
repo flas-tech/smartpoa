@@ -1,0 +1,42 @@
+{
+  "version": "0.2.3",
+  "releases": [
+    {
+      "version": "0.2.3",
+      "date": "2026-11-17",
+      "title": "Automatic updates and What's new",
+      "items": [
+        { "text": "smartPOA now checks for new versions and updates itself, including on phones and home-screen installs. If you are in the middle of entering something, it waits and shows an Update button instead of interrupting you." },
+        { "text": "This window appears once after each update. You can reopen it anytime from What's new at the bottom of the menu." },
+        { "text": "You can add smartPOA to your phone's home screen for a full-screen, app-style view. On iPhone, tap Share, then Add to Home Screen." }
+      ]
+    },
+    {
+      "version": "0.2.2",
+      "date": "2026-11-17",
+      "title": "Feedback",
+      "items": [
+        { "text": "Use the Feedback button in the top bar to report a problem, suggest a feature or ask a question. Replies appear under Your earlier feedback." },
+        { "text": "Feedback inbox under Administration lists every message, with status, replies and CSV export.", "roles": ["owner"] }
+      ]
+    },
+    {
+      "version": "0.2.1",
+      "date": "2026-11-17",
+      "title": "Past checkrides",
+      "items": [
+        { "text": "New Past checkrides tab with outcome totals, filters by year, applicant, certificate and result, attempt numbers and CSV export.", "roles": ["org_admin", "examiner", "office", "auditor"] }
+      ]
+    },
+    {
+      "version": "0.2.0",
+      "date": "2026-11-16",
+      "title": "Records from the previous POA program",
+      "items": [
+        { "text": "Applicants, aircraft and checkride records from the previous plan of action program were brought into smartPOA." },
+        { "text": "Data Review tab lists records flagged for correction, plus automatic checks that clear once a record is fixed.", "roles": ["org_admin", "examiner", "office", "auditor"] },
+        { "text": "Checkride scheduling and outcome records, and AI-assisted scenario drafting that you review before use.", "roles": ["org_admin", "examiner", "office"] }
+      ]
+    }
+  ]
+}

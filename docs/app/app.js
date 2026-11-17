@@ -207,7 +207,7 @@
     $app.innerHTML = `<div class="layout"><aside class="sidebar" id="side">${brand('Flite Line Technologies')}
       ${orgs.length ? `<label class="org-switch">Organization<select id="orgSel">${orgs.map((x) => `<option value="${x.id}" ${x.id === S.orgId ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>` : ''}
       <nav class="nav">${nav.map(link).join('')}<div class="nav-sec">Administration</div>${admin.map(link).join('')}</nav>
-      <div class="side-foot">${o ? esc(roles().map((r) => ROLE_LABEL[r]).join(' · ')) + '<br>' : ''}<a href="#" id="signout">Sign out</a> · v${esc(C.version)}</div></aside>
+      <div class="side-foot">${o ? esc(roles().map((r) => ROLE_LABEL[r]).join(' · ')) + '<br>' : ''}<a href="#" id="signout">Sign out</a> · <a href="#" id="wnLink">What's new</a> · v${esc(C.version)}</div></aside>
       <div class="main"><div class="topbar"><button class="menu-btn" id="menuBtn" aria-label="Menu">☰</button><span class="sm strong">${esc(o ? o.name : 'smartPOA')}</span><span class="who">${esc((S.ctx.profile && (S.ctx.profile.full_name || S.ctx.profile.email)) || '')}</span><button class="btn ghost sm fb-btn" id="fbBtn" type="button">${icon('chat')}<span>Feedback</span></button></div>
       <div class="content" id="content">${inner || '<div class="loading">Loading…</div>'}</div></div></div>`;
     const sel = qs('#orgSel'); if (sel) sel.onchange = () => { S.orgId = sel.value; localStorage.setItem('spoa_org', S.orgId); go('#/home'); };
