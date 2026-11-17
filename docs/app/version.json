@@ -1,14 +1,49 @@
 {
-  "version": "0.2.3",
+  "version": "0.2.4",
   "releases": [
+    {
+      "version": "0.2.4",
+      "date": "2026-11-17",
+      "title": "Question bank filled from the ACS",
+      "items": [
+        {
+          "text": "The question bank now has a draft question and expected answer for every knowledge and risk management element in the Private, Commercial, Instrument, ATP and Flight Instructor ACS. They were written by AI in the same style as the previous POA program, so read each one before approving.",
+          "roles": [
+            "org_admin",
+            "examiner",
+            "auditor"
+          ]
+        },
+        {
+          "text": "Filter the question bank by standard, area of operation, task, element type and status. After reading a task's drafts, approve them together with one button.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        },
+        {
+          "text": "Approved bank questions that match the elements in a plan can be added from the plan's Questions step.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        }
+      ]
+    },
     {
       "version": "0.2.3",
       "date": "2026-11-17",
       "title": "Automatic updates and What's new",
       "items": [
-        { "text": "smartPOA now checks for new versions and updates itself, including on phones and home-screen installs. If you are in the middle of entering something, it waits and shows an Update button instead of interrupting you." },
-        { "text": "This window appears once after each update. You can reopen it anytime from What's new at the bottom of the menu." },
-        { "text": "You can add smartPOA to your phone's home screen for a full-screen, app-style view. On iPhone, tap Share, then Add to Home Screen." }
+        {
+          "text": "smartPOA now checks for new versions and updates itself, including on phones and home-screen installs. If you are in the middle of entering something, it waits and shows an Update button instead of interrupting you."
+        },
+        {
+          "text": "This window appears once after each update. You can reopen it anytime from What's new at the bottom of the menu."
+        },
+        {
+          "text": "You can add smartPOA to your phone's home screen for a full-screen, app-style view. On iPhone, tap Share, then Add to Home Screen."
+        }
       ]
     },
     {
@@ -16,8 +51,15 @@
       "date": "2026-11-17",
       "title": "Feedback",
       "items": [
-        { "text": "Use the Feedback button in the top bar to report a problem, suggest a feature or ask a question. Replies appear under Your earlier feedback." },
-        { "text": "Feedback inbox under Administration lists every message, with status, replies and CSV export.", "roles": ["owner"] }
+        {
+          "text": "Use the Feedback button in the top bar to report a problem, suggest a feature or ask a question. Replies appear under Your earlier feedback."
+        },
+        {
+          "text": "Feedback inbox under Administration lists every message, with status, replies and CSV export.",
+          "roles": [
+            "owner"
+          ]
+        }
       ]
     },
     {
@@ -25,7 +67,15 @@
       "date": "2026-11-17",
       "title": "Past checkrides",
       "items": [
-        { "text": "New Past checkrides tab with outcome totals, filters by year, applicant, certificate and result, attempt numbers and CSV export.", "roles": ["org_admin", "examiner", "office", "auditor"] }
+        {
+          "text": "New Past checkrides tab with outcome totals, filters by year, applicant, certificate and result, attempt numbers and CSV export.",
+          "roles": [
+            "org_admin",
+            "examiner",
+            "office",
+            "auditor"
+          ]
+        }
       ]
     },
     {
@@ -33,9 +83,26 @@
       "date": "2026-11-16",
       "title": "Records from the previous POA program",
       "items": [
-        { "text": "Applicants, aircraft and checkride records from the previous plan of action program were brought into smartPOA." },
-        { "text": "Data Review tab lists records flagged for correction, plus automatic checks that clear once a record is fixed.", "roles": ["org_admin", "examiner", "office", "auditor"] },
-        { "text": "Checkride scheduling and outcome records, and AI-assisted scenario drafting that you review before use.", "roles": ["org_admin", "examiner", "office"] }
+        {
+          "text": "Applicants, aircraft and checkride records from the previous plan of action program were brought into smartPOA."
+        },
+        {
+          "text": "Data Review tab lists records flagged for correction, plus automatic checks that clear once a record is fixed.",
+          "roles": [
+            "org_admin",
+            "examiner",
+            "office",
+            "auditor"
+          ]
+        },
+        {
+          "text": "Checkride scheduling and outcome records, and AI-assisted scenario drafting that you review before use.",
+          "roles": [
+            "org_admin",
+            "examiner",
+            "office"
+          ]
+        }
       ]
     }
   ]

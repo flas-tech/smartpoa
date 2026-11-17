@@ -29,6 +29,7 @@
   }
   async function rpc(name, args) { const { data, error } = await sb.rpc(name, args || {}); if (error) throw error; return data; }
   async function q(p) { const { data, error } = await p; if (error) throw error; return data; }
+  async function fetchAll(mk) { let out = []; for (let from = 0; ; from += 1000) { const d = await q(mk().range(from, from + 999)); out = out.concat(d || []); if (!d || d.length < 1000) break; } return out; }
   function busy(b, on, label) { if (!b) return; if (on) { b.dataset.l = b.innerHTML; b.disabled = true; b.textContent = label || 'Working…'; } else { b.disabled = false; if (b.dataset.l) b.innerHTML = b.dataset.l; } }
   async function act(b, fn, ok) { busy(b, true); try { const r = await fn(); if (ok) toast(ok); return r; } catch (e) { toast(friendly(e), true); throw e; } finally { busy(b, false); } }
   const go = (h) => { if (location.hash === h) route(); else location.hash = h; };
@@ -741,7 +742,7 @@
       const qsList = content.questions = content.questions || [];
       const sel = []; tasks.forEach((t) => { const ct = content.tasks[t.key]; if (!ct || !ct.included) return; const codes = E.elementCodes(doc, t.area, t.task); t.task.elements.forEach((e, i) => { if ((ct.elements || []).includes(codes[i])) sel.push({ t, e, ref: codes[i] }); }); });
       let bank = [];
-      try { bank = await q(sb.from('questions').select('*').eq('org_id', S.orgId).eq('status', 'approved').eq('standard_id', doc.id)); } catch (_) {}
+      try { const codes = [...new Set(sel.map((x) => x.ref))]; for (let i = 0; i < codes.length; i += 150) bank = bank.concat(await q(sb.from('questions').select('*').eq('org_id', S.orgId).eq('status', 'approved').eq('standard_id', doc.id).in('element_code', codes.slice(i, i + 150)))); } catch (_) {}
       const bankMatch = bank.filter((b) => sel.some((s) => s.ref === b.element_code) && !qsList.some((x) => x.bankId === b.id));
       const counts = qsList.reduce((a, x) => (a[x.portion] = (a[x.portion] || 0) + 1, a), {});
       el.innerHTML = `<div class="banner info">Questions are generated from the ACS elements selected in this plan and framed in the scenario. They are drafts: review the wording before the test. Approved questions from your bank that match selected elements can be added too.</div>
@@ -803,7 +804,7 @@
   }
 
   // expose for other modules
-  Object.assign(window.SPOA, { esc, qs, qsa, fmtDate, fmtDT, today, uid, rpc, q, act, busy, toast, friendly, go, org, roles, can, isOwner, shell, head, modal, confirmBox, loadStd, loadDocsDb, stdDoc, bindRows, statusPill, outcomePill, renderDocs, uploadDoc, ROLE_LABEL, ROLE_DESC, noOrg, AKTR_RE, aktrList, route });
+  Object.assign(window.SPOA, { fetchAll, esc, qs, qsa, fmtDate, fmtDT, today, uid, rpc, q, act, busy, toast, friendly, go, org, roles, can, isOwner, shell, head, modal, confirmBox, loadStd, loadDocsDb, stdDoc, bindRows, statusPill, outcomePill, renderDocs, uploadDoc, ROLE_LABEL, ROLE_DESC, noOrg, AKTR_RE, aktrList, route });
 
   // ---------- router ----------
   const ROUTES = [];

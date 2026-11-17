@@ -116,21 +116,74 @@
   async function viewQuestions() {
     const c = shell('questions'); if (!org()) return noOrg(c);
     await loadStd();
-    const rows = await q(sb.from('questions').select('*').eq('org_id', S.orgId).order('created_at', { ascending: false }));
+    c.innerHTML = head('Question bank', 'Loading questions…');
+    const rows = await A.fetchAll(() => sb.from('questions').select('*').eq('org_id', S.orgId).order('element_code', { ascending: true }).order('id', { ascending: true }));
     const ed = can('org_admin', 'examiner');
-    c.innerHTML = head('Question bank', 'Your organization\'s reviewed questions, tied to ACS element codes. Approved questions can be pulled into any plan that selects the same element.', ed ? '<button class="btn" id="add">Add question</button>' : '') +
-      `<div class="card"><div class="form-grid3"><label>Standard<select id="fs"><option value="">All</option>${S.std.map((d) => `<option value="${d.id}">${esc(d.num)}</option>`).join('')}</select></label><label>Status<select id="ft"><option value="">All</option><option>draft</option><option>approved</option><option>retired</option></select></label><label>Search<input id="srch" placeholder="Element code or text"></label></div>
-      <div class="table-wrap"><table class="t" id="tb"><thead><tr><th>Element</th><th>Prompt</th><th>Portion</th><th>Status</th><th></th></tr></thead><tbody></tbody></table></div></div>`;
-    const render = () => {
-      const fs = qs('#fs', c).value, ft = qs('#ft', c).value, s = qs('#srch', c).value.toLowerCase();
-      const list = rows.filter((r) => (!fs || r.standard_id === fs) && (!ft || r.status === ft) && (!s || (r.prompt + ' ' + (r.element_code || '')).toLowerCase().includes(s)));
-      qs('#tb tbody').innerHTML = list.length ? list.map((r) => `<tr><td class="mono xs">${esc(r.element_code || '')}<div class="muted">${esc((stdDoc(r.standard_id) || {}).num || '')}</div></td><td class="sm">${esc(r.prompt)}${r.expected ? `<div class="xs muted">Expected: ${esc(r.expected)}</div>` : ''}${r.refs ? `<div class="xs muted">Refs: ${esc(r.refs)}</div>` : ''}</td><td><span class="pill">${esc(r.portion)}</span></td><td><span class="pill ${r.status === 'approved' ? 'ok' : r.status === 'retired' ? '' : 'warn'}">${esc(r.status)}</span></td>
-        <td>${ed ? `<div class="btn-row">${r.status !== 'approved' ? `<button class="btn ghost sm" data-ap="${r.id}">Approve</button>` : ''}${r.status !== 'retired' ? `<button class="btn ghost sm" data-rt="${r.id}">Retire</button>` : ''}<button class="btn ghost sm" data-ed="${r.id}">Edit</button></div>` : ''}</td></tr>`).join('') : '<tr><td colspan="5"><div class="empty"><span class="strong">No questions</span>Add questions you trust; approved ones can be reused across plans.</div></td></tr>';
-      qsa('[data-ap]', c).forEach((b) => b.onclick = async () => { try { await act(b, () => q(sb.from('questions').update({ status: 'approved', approved_by: S.ctx.user_id }).eq('id', b.dataset.ap)), 'Approved'); A.route(); } catch (_) {} });
-      qsa('[data-rt]', c).forEach((b) => b.onclick = async () => { try { await act(b, () => q(sb.from('questions').update({ status: 'retired' }).eq('id', b.dataset.rt)), 'Retired'); A.route(); } catch (_) {} });
-      qsa('[data-ed]', c).forEach((b) => b.onclick = () => form(rows.find((r) => r.id === b.dataset.ed)));
+    const TYPE = { K: 'Knowledge', R: 'Risk management', S: 'Skill' };
+    const typeOf = (r) => { const m = /\.([KRS])\d/.exec(r.element_code || ''); return m ? m[1] : ''; };
+    const areaOf = (r) => (r.element_code || '').split('.')[1] || '';
+    const docs = S.std.filter((d) => rows.some((r) => r.standard_id === d.id));
+    const st = { fs: docs.length === 1 ? docs[0].id : '', fa: '', fk: '', ftp: '', ft: '', s: '', shown: 50 };
+    const cnt = (s) => rows.filter((r) => r.status === s).length;
+    const aiDrafts = rows.filter((r) => r.status === 'draft' && r.source === 'ai_draft').length;
+    c.innerHTML = head('Question bank', 'Your organization\'s questions, tied to ACS element codes. Approved questions can be added to any plan that selects the same element.', ed ? '<button class="btn" id="add">Add question</button>' : '') +
+      (aiDrafts ? `<div class="banner warn">${aiDrafts.toLocaleString()} AI-drafted question${aiDrafts === 1 ? ' is' : 's are'} waiting for review. Read each question and expected answer against the current references before approving. Only approved questions can be added to plans.</div>` : '') +
+      `<div class="kpis" id="qk"></div>
+      <div class="card"><div class="form-grid3">
+        <label>Standard<select id="fs"><option value="">All standards</option>${S.std.map((d) => `<option value="${d.id}" ${st.fs === d.id ? 'selected' : ''}>${esc(d.num)} — ${esc(d.title)}</option>`).join('')}</select></label>
+        <label>Area of operation<select id="fa"></select></label>
+        <label>Task<select id="ftp"></select></label>
+        <label>Element type<select id="fk"><option value="">All types</option>${Object.entries(TYPE).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
+        <label>Status<select id="ft"><option value="">All statuses</option><option value="draft">Draft</option><option value="approved">Approved</option><option value="retired">Retired</option></select></label>
+        <label>Search<input id="srch" placeholder="Element code or text"></label></div>
+        <div class="btn-row" id="qbar" style="margin-top:.6rem;align-items:center"></div></div>
+      <div class="card flush"><div class="table-wrap"><table class="t" id="tb"><thead><tr><th style="width:9rem">Element</th><th>Question and expected answer</th><th style="width:6rem">Status</th><th style="width:1%"></th></tr></thead><tbody></tbody></table></div><div id="more" style="padding:.8rem;text-align:center"></div></div>`;
+    const docOf = (id) => S.std.find((d) => d.id === id);
+    const fillAreas = () => {
+      const d = docOf(st.fs);
+      qs('#fa', c).innerHTML = `<option value="">${d ? 'All areas' : 'Choose a standard first'}</option>` + (d ? d.areas.map((a) => `<option value="${a.roman}" ${st.fa === a.roman ? 'selected' : ''}>${a.roman}. ${esc(a.title)}</option>`).join('') : '');
+      qs('#fa', c).disabled = !d;
+      const a = d && d.areas.find((x) => x.roman === st.fa);
+      qs('#ftp', c).innerHTML = `<option value="">${a ? 'All tasks' : 'Choose an area first'}</option>` + (a ? a.tasks.map((t) => `<option value="${t.letter}" ${st.ftp === t.letter ? 'selected' : ''}>${t.letter}. ${esc(t.title)}</option>`).join('') : '');
+      qs('#ftp', c).disabled = !a;
     };
-    ['fs', 'ft'].forEach((i) => qs('#' + i).onchange = render); qs('#srch', c).oninput = render; render();
+    const filtered = () => rows.filter((r) => (!st.fs || r.standard_id === st.fs) && (!st.fa || areaOf(r) === st.fa) && (!st.ftp || (r.element_code || '').split('.')[2] === st.ftp) && (!st.fk || typeOf(r) === st.fk) && (!st.ft || r.status === st.ft) && (!st.s || (r.prompt + ' ' + (r.expected || '') + ' ' + (r.element_code || '')).toLowerCase().includes(st.s)));
+    const kpis = () => {
+      qs('#qk', c).innerHTML = [['', 'All questions', rows.length], ['draft', 'Drafts to review', cnt('draft')], ['approved', 'Approved', cnt('approved')], ['retired', 'Retired', cnt('retired')]].map(([k, l, n]) => `<button type="button" class="kpi kpi-btn ${st.ft === k ? 'on' : ''}" data-st="${k}"><div class="kpi-label">${l}</div><div class="kpi-value">${n.toLocaleString()}</div></button>`).join('');
+      qsa('[data-st]', c).forEach((b) => b.onclick = () => { st.ft = b.dataset.st; qs('#ft', c).value = st.ft; st.shown = 50; render(); });
+    };
+    const rowHtml = (r) => `<tr data-row="${r.id}"><td class="mono xs">${esc(r.element_code || '')}<div class="muted">${esc((docOf(r.standard_id) || {}).num || '')}</div><div class="muted">${esc(TYPE[typeOf(r)] || '')}</div></td>
+      <td class="sm">${esc(r.prompt)}${r.expected ? `<div class="xs muted" style="margin-top:.25rem"><b>Expected:</b> ${esc(r.expected)}</div>` : ''}${r.refs ? `<div class="xs muted"><b>References:</b> ${esc(r.refs)}</div>` : ''}${r.source === 'ai_draft' ? '<span class="pill warn" style="margin-top:.3rem">AI draft' + (r.status === 'approved' ? ', reviewed' : ' — examiner review') + '</span>' : ''}</td>
+      <td><span class="pill ${r.status === 'approved' ? 'ok' : r.status === 'retired' ? '' : 'warn'}">${r.status === 'draft' ? 'Draft' : r.status === 'approved' ? 'Approved' : 'Retired'}</span></td>
+      <td>${ed ? `<div class="btn-row" style="flex-wrap:nowrap">${r.status !== 'approved' ? `<button class="btn ghost sm" data-ap="${r.id}">Approve</button>` : ''}<button class="btn ghost sm" data-ed="${r.id}">Edit</button>${r.status !== 'retired' ? `<button class="btn ghost sm" data-rt="${r.id}">Retire</button>` : ''}</div>` : ''}</td></tr>`;
+    const setStatus = async (ids, status, b) => {
+      const patch = status === 'approved' ? { status, approved_by: S.ctx.user_id, approved_at: new Date().toISOString() } : { status };
+      await act(b, async () => { for (let i = 0; i < ids.length; i += 200) await q(sb.from('questions').update(patch).in('id', ids.slice(i, i + 200)).eq('org_id', S.orgId)); }, ids.length === 1 ? (status === 'approved' ? 'Approved' : 'Retired') : ids.length.toLocaleString() + ' questions ' + (status === 'approved' ? 'approved' : 'retired'));
+      const set = new Set(ids); rows.forEach((r) => { if (set.has(r.id)) Object.assign(r, patch); });
+      render();
+    };
+    function render() {
+      kpis();
+      const list = filtered();
+      const drafts = list.filter((r) => r.status === 'draft');
+      qs('#qbar', c).innerHTML = `<span class="sm muted">Showing ${Math.min(st.shown, list.length).toLocaleString()} of ${list.length.toLocaleString()} matching question${list.length === 1 ? '' : 's'}</span>` +
+        (ed && drafts.length && drafts.length <= 60 ? `<button class="btn sm" id="apAll" type="button" style="margin-left:auto">Approve ${drafts.length} draft${drafts.length === 1 ? '' : 's'} shown</button>` : '') +
+        (ed && drafts.length > 60 ? `<span class="xs muted" style="margin-left:auto">Filter to a single task to approve its drafts together after reading them.</span>` : '');
+      qs('#tb tbody', c).innerHTML = list.length ? list.slice(0, st.shown).map(rowHtml).join('') : '<tr><td colspan="4"><div class="empty"><span class="strong">No questions</span>Change the filters or add a question.</div></td></tr>';
+      qs('#more', c).innerHTML = list.length > st.shown ? `<button class="btn ghost" id="moreBtn" type="button">Show ${Math.min(50, list.length - st.shown)} more</button>` : '';
+      const mb = qs('#moreBtn', c); if (mb) mb.onclick = () => { st.shown += 50; render(); };
+      const aa = qs('#apAll', c); if (aa) aa.onclick = async () => { if (await A.confirmBox('Approve drafts', `Approve the ${drafts.length} draft question(s) shown? Confirm you have read each question and expected answer.`, 'Approve')) { try { await setStatus(drafts.map((r) => r.id), 'approved', aa); } catch (_) {} } };
+      qsa('[data-ap]', c).forEach((b) => b.onclick = async () => { try { await setStatus([b.dataset.ap], 'approved', b); } catch (_) {} });
+      qsa('[data-rt]', c).forEach((b) => b.onclick = async () => { try { await setStatus([b.dataset.rt], 'retired', b); } catch (_) {} });
+      qsa('[data-ed]', c).forEach((b) => b.onclick = () => form(rows.find((r) => r.id === b.dataset.ed)));
+    }
+    qs('#fs', c).onchange = (e) => { st.fs = e.target.value; st.fa = ''; st.ftp = ''; st.shown = 50; fillAreas(); render(); };
+    qs('#fa', c).onchange = (e) => { st.fa = e.target.value; st.ftp = ''; st.shown = 50; fillAreas(); render(); };
+    qs('#ftp', c).onchange = (e) => { st.ftp = e.target.value; st.shown = 50; render(); };
+    qs('#fk', c).onchange = (e) => { st.fk = e.target.value; st.shown = 50; render(); };
+    qs('#ft', c).onchange = (e) => { st.ft = e.target.value; st.shown = 50; render(); };
+    let tm; qs('#srch', c).oninput = (e) => { clearTimeout(tm); tm = setTimeout(() => { st.s = e.target.value.trim().toLowerCase(); st.shown = 50; render(); }, 200); };
+    fillAreas(); render();
     const form = (r) => {
       r = r || { portion: 'oral', difficulty: 2 };
       modal(`<h2>${r.id ? 'Edit question' : 'Add question'}</h2><form id="f"><div class="form-grid"><label>Standard<select name="std">${S.std.map((d) => `<option value="${d.id}" ${r.standard_id === d.id ? 'selected' : ''}>${esc(d.num)} — ${esc(d.title)}</option>`).join('')}</select></label>
@@ -141,7 +194,7 @@
           e.preventDefault(); const f = e.target; const code = f.code.value.trim().toUpperCase();
           if (code && !A.AKTR_RE.test(code)) { toast('Element code should look like PA.I.C.K2', true); return; }
           const row = { standard_id: f.std.value, element_code: code || null, task_ref: code ? code.split('.').slice(0, 3).join('.') : null, portion: f.portion.value, difficulty: +f.dif.value, prompt: f.prompt.value.trim(), expected: f.exp.value.trim() || null, refs: f.refs.value.trim() || null };
-          try { await act(qs('button:not([data-close])', f), () => r.id ? q(sb.from('questions').update(row).eq('id', r.id)) : q(sb.from('questions').insert(Object.assign(row, { org_id: S.orgId, created_by: S.ctx.user_id }))), 'Saved'); close(); A.route(); } catch (_) {}
+          try { await act(qs('button:not([data-close])', f), () => r.id ? q(sb.from('questions').update(row).eq('id', r.id)) : q(sb.from('questions').insert(Object.assign(row, { org_id: S.orgId, created_by: S.ctx.user_id }))), 'Saved'); close(); if (r.id) { Object.assign(r, row); render(); } else A.route(); } catch (_) {}
         };
       });
     };
