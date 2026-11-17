@@ -3,7 +3,7 @@
 // It never changes a standard automatically: a changed hash is flagged pending_review for the owner.
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const ALLOWED = (Deno.env.get("SMARTPOA_ALLOWED_ORIGINS") ?? "https://flas-tech.github.io,http://localhost:8080,http://127.0.0.1:8080").split(",");
+const ALLOWED = (Deno.env.get("SMARTPOA_ALLOWED_ORIGINS") ?? "https://smartpoa.flitelinetech.com,https://flas-tech.github.io,http://localhost:8080,http://127.0.0.1:8080").split(",");
 function cors(origin: string | null) {
   const o = origin && ALLOWED.includes(origin) ? origin : ALLOWED[0];
   return { "Access-Control-Allow-Origin": o, "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
