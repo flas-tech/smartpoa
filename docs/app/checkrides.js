@@ -245,7 +245,85 @@
   }
 
   Object.assign(A, { ai, orgSettings, loadBriefReq, briefReqFor, CR: { TEST_TYPES, RESULTS, GRADES, PURPOSE_OF, resultPill } });
+
+  // ---------- past checkrides (examiner history) ----------
+  async function viewPastCheckrides(m, params) {
+    const c = shell('past-checkrides'); if (!org()) return noOrg(c);
+    if (!can('org_admin', 'examiner', 'auditor')) { c.innerHTML = '<div class="banner warn">Past checkrides are available to examiners, administrators and auditors.</div>'; return; }
+    const [all, apps] = await Promise.all([
+      q(sb.from('checkrides').select('*').eq('org_id', S.orgId).order('scheduled_at', { ascending: false })),
+      q(sb.from('applicants').select('id,first_name,last_name,school,recommending_instructor,ftn').eq('org_id', S.orgId).order('last_name')),
+    ]);
+    const AP = Object.fromEntries(apps.map((a) => [a.id, a]));
+    const nowIso = new Date().toISOString();
+    const rows = all.filter((r) => r.result || (r.scheduled_at && r.scheduled_at < nowIso));
+    // attempt numbers per applicant and grade (cancelled bookings are not attempts)
+    const att = {}; const tot = {};
+    rows.slice().sort((a, b) => (a.scheduled_at || '').localeCompare(b.scheduled_at || '')).forEach((r) => {
+      if (!r.applicant_id || r.result === 'cancelled') return; const k = r.applicant_id + '|' + r.grade_sought; tot[k] = (tot[k] || 0) + 1; att[r.id] = tot[k]; });
+    const attemptOf = (r) => { const k = r.applicant_id + '|' + r.grade_sought; return att[r.id] && tot[k] > 1 ? `Attempt ${att[r.id]} of ${tot[k]}` : ''; };
+    const years = Array.from(new Set(rows.map((r) => (r.scheduled_at || '').slice(0, 4)).filter(Boolean))).sort().reverse();
+    const schools = Array.from(new Set(apps.map((a) => a.school).filter(Boolean))).sort();
+    const st = { qq: '', result: params.get('result') || '', grade: '', cls: '', type: '', school: '', year: '' };
+    const sel = (id, label, opts) => `<label>${label}<select id="${id}"><option value="">All</option>${opts}</select></label>`;
+    c.innerHTML = head('Past checkrides', 'Every checkride you have conducted, including records brought over from the previous system. Select a row to open the full record.',
+      '<a class="btn ghost" href="#/checkride-reports">Outcome report</a><button class="btn ghost" id="csv">Export CSV</button>') +
+      `<div class="kpis" id="pk"></div>
+      <div class="card"><div class="form-grid3" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))">
+        <label>Search<input id="p0" type="search" placeholder="Name, FTN or tail"></label>
+        ${sel('p1', 'Result', Object.entries(RESULTS).map(([k, v]) => `<option value="${k}" ${st.result === k ? 'selected' : ''}>${esc(v)}</option>`).join('') + `<option value="none" ${st.result === 'none' ? 'selected' : ''}>No result recorded</option>`)}
+        ${sel('p2', 'Grade', Object.entries(GRADES).map(([k, v]) => `<option value="${k}">${v}</option>`).join(''))}
+        ${sel('p3', 'Class', CLASSES.map((x) => `<option>${x}</option>`).join(''))}
+        ${sel('p4', 'Test type', TEST_TYPES.map((t) => `<option>${esc(t)}</option>`).join(''))}
+        ${sel('p5', 'Flight school', schools.map((x) => `<option>${esc(x)}</option>`).join(''))}
+        ${sel('p6', 'Year', years.map((y) => `<option>${y}</option>`).join(''))}
+      </div></div>
+      <div class="card flush"><div class="table-wrap"><table class="t" id="pt"><thead><tr><th>Date</th><th>Applicant</th><th>Certificate</th><th>Test type</th><th>Aircraft</th><th>Result</th><th>Ground / flight</th></tr></thead><tbody></tbody></table></div><div class="xs muted" id="pc" style="padding:.6rem 1rem"></div></div>`;
+    let list = [];
+    const render = () => {
+      const needle = st.qq.toLowerCase();
+      list = rows.filter((r) => { const a = AP[r.applicant_id] || {};
+        if (st.result && (st.result === 'none' ? r.result : r.result !== st.result)) return false;
+        if (st.grade && r.grade_sought !== st.grade) return false;
+        if (st.cls && r.class !== st.cls) return false;
+        if (st.type && r.test_type !== st.type) return false;
+        if (st.school && a.school !== st.school) return false;
+        if (st.year && (r.scheduled_at || '').slice(0, 4) !== st.year) return false;
+        if (needle && ![a.first_name, a.last_name, a.ftn, r.preapproval_number, r.tail_number, r.aircraft_make_model, a.recommending_instructor].join(' ').toLowerCase().includes(needle)) return false;
+        return true; });
+      const n = (k) => list.filter((r) => r.result === k).length;
+      const T = n('temporary'), D = n('disapproval'), L = n('discontinuance'), X = n('cancelled'), O = list.filter((r) => !r.result).length;
+      const kpi = (l, v, note, res) => `<button type="button" class="kpi kpi-btn${st.result === res && res ? ' on' : ''}" data-r="${res}" aria-pressed="${st.result === res && !!res}"><div class="kpi-label">${l}</div><div class="kpi-value">${v}</div><div class="kpi-note">${note}</div></button>`;
+      qs('#pk', c).innerHTML = kpi('Checkrides', list.length, 'Matching the filters', '') + kpi('Passed', T, (T + D ? Math.round(100 * T / (T + D)) + '% pass rate' : 'Temporary certificate'), 'temporary') +
+        kpi('Disapproved', D, 'Notice of Disapproval', 'disapproval') + kpi('Discontinued', L, 'Letter of Discontinuance', 'discontinuance') + kpi('Cancelled', X, 'Not conducted', 'cancelled') +
+        kpi('No result', O, O ? 'Needs an outcome' : 'All recorded', 'none');
+      qsa('#pk [data-r]', c).forEach((k) => k.onclick = () => { st.result = st.result === k.dataset.r ? '' : k.dataset.r; qs('#p1', c).value = st.result; render(); });
+      qs('#pt tbody', c).innerHTML = list.length ? list.map((r) => { const a = AP[r.applicant_id];
+        return `<tr class="click" data-id="${r.id}"><td class="sm" style="white-space:nowrap">${esc(fmtDate((r.scheduled_at || '').slice(0, 10)) || '—')}</td>
+          <td>${a ? `<a class="strong sm" href="#/applicant/${a.id}" data-stop>${esc(name(a))}</a>` : '<span class="sm muted">No applicant</span>'}<div class="xs muted">${esc([a && a.school, attemptOf(r)].filter(Boolean).join(' · '))}</div></td>
+          <td class="sm">${esc(GRADES[r.grade_sought] || '—')}<div class="xs muted">${esc(r.class || '')}</div></td>
+          <td class="sm">${esc(r.test_type)}${r.source === 'airtable_import' ? '<div class="xs muted">Imported</div>' : ''}</td>
+          <td class="sm">${esc(r.aircraft_make_model || '—')}<div class="xs muted mono">${esc(r.tail_number || '')}</div></td>
+          <td>${r.result ? resultPill(r.result) : '<span class="pill warn">No result</span>'}${r.notes ? `<div class="xs muted" style="max-width:220px">${esc(r.notes.length > 70 ? r.notes.slice(0, 70) + '…' : r.notes)}</div>` : ''}</td>
+          <td class="sm mono">${r.ground_time != null || r.flight_time != null ? esc((hrs(r.ground_time) || '—') + ' / ' + (hrs(r.flight_time) || '—')) : '—'}</td></tr>`; }).join('')
+        : '<tr><td colspan="7"><div class="empty"><span class="strong">No past checkrides match</span>Clear a filter to see more.</div></td></tr>';
+      qs('#pc', c).textContent = list.length + ' of ' + rows.length + ' past checkride record(s)';
+      qsa('#pt [data-stop]', c).forEach((x) => x.onclick = (e) => e.stopPropagation());
+      qsa('#pt tr[data-id]', c).forEach((tr) => tr.onclick = () => checkrideForm(rows.find((r) => r.id === tr.dataset.id), apps, () => viewPastCheckrides(m, params)));
+    };
+    qs('#p0', c).oninput = (e) => { st.qq = e.target.value.trim(); render(); };
+    [['#p1', 'result'], ['#p2', 'grade'], ['#p3', 'cls'], ['#p4', 'type'], ['#p5', 'school'], ['#p6', 'year']].forEach(([s, k]) => { qs(s, c).onchange = (e) => { st[k] = e.target.value; render(); }; });
+    qs('#csv', c).onclick = () => {
+      const out = [['date', 'applicant', 'ftn', 'school', 'recommending_instructor', 'grade_sought', 'class', 'test_type', 'basis', 'preapproval', 'departure_airport', 'aircraft', 'tail', 'result', 'ground_time', 'flight_time', 'notes', 'source']];
+      list.forEach((r) => { const a = AP[r.applicant_id] || {}; out.push([(r.scheduled_at || '').slice(0, 10), a.last_name ? a.last_name + ', ' + a.first_name : '', a.ftn, a.school, a.recommending_instructor, GRADES[r.grade_sought], r.class, r.test_type, r.basis, r.preapproval_number, r.departure_airport, r.aircraft_make_model, r.tail_number, RESULTS[r.result] || '', r.ground_time, r.flight_time, r.notes, r.source]); });
+      const csv = out.map((r) => r.map((v) => { let s = v == null ? '' : String(v); if (/^[=+\-@]/.test(s)) s = "'" + s; return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(',')).join('\n');
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'smartpoa-past-checkrides-' + today() + '.csv'; a.click();
+    };
+    render();
+  }
+
   A.addRoute(/^\/schedule$/, viewSchedule);
+  A.addRoute(/^\/past-checkrides$/, viewPastCheckrides);
   A.addRoute(/^\/checkride-reports$/, viewCheckrideReports);
   A.addRoute(/^\/org-settings$/, viewOrgSettings);
 })();

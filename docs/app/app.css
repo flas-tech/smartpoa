@@ -84,6 +84,9 @@ table.t tr.click { cursor: pointer; } table.t tr.click:hover td { background: #f
 .banner.ok { background: var(--ok-bg); border-color: #bfe0cc; color: #174d33; }
 .banner.warn { background: var(--warn-bg); border-color: #efd7a6; color: #5f3f06; }
 .banner.bad { background: var(--bad-bg); border-color: #f0c2c8; color: #7a1a27; }
+.kpi-btn { font: inherit; color: inherit; text-align: left; width: 100%; cursor: pointer; }
+.kpi-btn:hover, .kpi-btn.on { border-color: var(--accent); }
+.kpi-btn.on { box-shadow: inset 0 0 0 1px var(--accent); }
 .banner.info { background: var(--info-bg); border-color: #c8d9eb; color: #1f4466; }
 .err { background: var(--bad-bg); color: var(--bad); border-radius: 8px; padding: .6rem .8rem; font-size: .86rem; margin-bottom: .8rem; }
 .okmsg { background: var(--ok-bg); color: var(--ok); border-radius: 8px; padding: .6rem .8rem; font-size: .86rem; margin-bottom: .8rem; }

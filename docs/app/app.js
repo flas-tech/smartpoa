@@ -52,6 +52,7 @@
     file: '<path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/>',
     cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
     flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
+    hist: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/>',
   };
   const icon = (k) => `<svg viewBox="0 0 24 24">${I[k] || ''}</svg>`;
 
@@ -185,6 +186,7 @@
     if (o) {
       if (can('org_admin', 'examiner', 'auditor')) nav.push(['poas', 'Plans of action', 'poa']);
       nav.push(['schedule', 'Schedule', 'cal']);
+      if (can('org_admin', 'examiner', 'auditor')) nav.push(['past-checkrides', 'Past checkrides', 'hist']);
       nav.push(['applicants', 'Applicants', 'people']);
       nav.push(['aircraft', 'Aircraft', 'plane']);
       if (can('org_admin', 'examiner', 'auditor')) nav.push(['questions', 'Question bank', 'q']);
