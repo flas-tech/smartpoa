@@ -329,3 +329,17 @@ li.q-fu, .db-qs .q-fu { margin-left: 1rem; }
   .q-table td:nth-child(2) { grid-column: 1 / -1; grid-row: 2; }
   .q-table tr.q-task td { grid-column: 1 / -1; }
 }
+
+/* v0.2.8: checkride blocks, setup, appendix notes, test-day sections */
+.cr-block { border: 1px solid var(--line); border-radius: 10px; padding: .75rem .9rem; margin-bottom: .7rem; background: #fff; }
+.cr-top { display: flex; justify-content: space-between; align-items: flex-start; gap: .6rem; flex-wrap: wrap; }
+.cr-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .3rem .9rem; margin-top: .45rem; }
+.steps-hint { font-size: .78rem; color: var(--muted); margin: 0 0 .7rem; }
+.kt-row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: flex-end; }
+.apx-note { display: block; margin: .35rem 0 0 1.6rem; }
+.apx-task { border-left: 3px solid var(--warn, #b7791f); background: #fffaf0; padding: .4rem .6rem; margin: .4rem 0 .2rem; border-radius: 6px; }
+.apx-task textarea { background: #fff; }
+.db-portion { font-size: 1rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 1.2rem 0 .5rem; }
+.db-brief > summary { cursor: pointer; }
+.db-ref { background: #fff; border: 1px dashed var(--line); border-radius: var(--r); padding: .8rem .9rem; margin-bottom: .6rem; }
+@media (max-width: 640px) { .cr-grid { grid-template-columns: 1fr; } .apx-note { margin-left: 0; } }

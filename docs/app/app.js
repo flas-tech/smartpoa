@@ -272,72 +272,81 @@
   const AKTR_RE = /^[A-Z]{2,3}\.[IVXL]+\.[A-Z]\.[KRS]\d+[a-z]?$/i;
   async function viewApplicants() {
     const c = shell('applicants'); if (!org()) return noOrg(c);
-    const rows = await q(sb.from('applicants').select('*').eq('org_id', S.orgId).order('last_name'));
+    const [rows, crl] = await Promise.all([q(sb.from('applicants').select('*').eq('org_id', S.orgId).order('last_name')), q(sb.from('checkrides').select('applicant_id,scheduled_at,grade_sought,class,test_type,result,school,recommending_instructor,knowledge_test').eq('org_id', S.orgId).order('scheduled_at', { ascending: false, nullsFirst: true }))]);
+    const CRS = {}; crl.forEach((r) => { (CRS[r.applicant_id] = CRS[r.applicant_id] || []).push(r); });
+    const GR = (window.SPOA.CR || {}).GRADES || {};
     const canEdit = can('org_admin', 'examiner', 'office');
     c.innerHTML = head('Applicants', 'Applicant records for testing and record keeping. Protected by organization access controls and MFA.', canEdit ? '<button class="btn" id="add">Add applicant</button>' : '') +
-      `<div class="card"><input id="srch" placeholder="Search name, email, school or instructor" style="margin:0 0 .6rem"><label class="check sm"><input type="checkbox" id="arch"> Show archived</label>
-      <div class="table-wrap"><table class="t" id="tb"><thead><tr><th>Name</th><th>Seeking / held</th><th>Instructor</th><th>Knowledge test</th><th>Added</th></tr></thead><tbody></tbody></table></div></div>`;
+      `<div class="card"><input id="srch" placeholder="Search name, FTN, email, school or instructor" style="margin:0 0 .6rem"><label class="check sm"><input type="checkbox" id="arch"> Show archived</label>
+      <div class="table-wrap"><table class="t" id="tb"><thead><tr><th>Name</th><th>FTN / held</th><th>Latest checkride</th><th>Instructor / school</th><th>Checkrides</th></tr></thead><tbody></tbody></table></div></div>`;
     const render = () => {
       const s = qs('#srch', c).value.toLowerCase(); const ar = qs('#arch', c).checked;
-      const list = rows.filter((r) => (ar || !r.archived) && (!s || [r.first_name, r.last_name, r.email, r.school, r.recommending_instructor].join(' ').toLowerCase().includes(s)));
-      qs('#tb tbody').innerHTML = list.length ? list.map((r) => `<tr class="click" data-h="#/applicant/${r.id}"><td><span class="strong">${esc(r.last_name)}, ${esc(r.first_name)}</span>${r.archived ? ' <span class="pill">Archived</span>' : ''}<div class="xs muted">${esc(r.email || '')}</div></td><td class="sm">${esc(r.cert_held || '—')}</td><td class="sm">${esc(r.recommending_instructor || '—')}<div class="xs muted">${esc(r.school || '')}</div></td><td class="sm">${(() => { const kl = E.ktTests(r.knowledge_test); if (!kl.length) return '—'; const n = kl.reduce((a, t) => a + (t.aktr || []).length, 0); return kl.map((t) => `<div>${esc(E.ktCode(t) || 'Test')}${t.score ? ' · ' + esc(t.score) + '%' : ''}${(t.expires || E.ktValidUntil(E.ktCode(t), t.date)) && (t.expires || E.ktValidUntil(E.ktCode(t), t.date)) < today() ? ' <span class="pill bad">Expired</span>' : ''}</div>`).join('') + (n ? `<div class="xs muted">${n} AKTR code(s)</div>` : ''); })()}</td><td class="sm muted">${fmtDate(r.created_at)}</td></tr>`).join('') : `<tr><td colspan="5"><div class="empty"><span class="strong">No applicants found</span>${canEdit ? 'Add one with the button above.' : ''}</div></td></tr>`;
+      const list = rows.filter((r) => (ar || !r.archived) && (!s || [r.first_name, r.last_name, r.email, r.ftn].concat((CRS[r.id] || []).map((x) => [x.school, x.recommending_instructor].join(' '))).join(' ').toLowerCase().includes(s)));
+      qs('#tb tbody').innerHTML = list.length ? list.map((r) => { const cl = CRS[r.id] || []; const l = cl[0];
+        return `<tr class="click" data-h="#/applicant/${r.id}"><td><span class="strong">${esc(r.last_name)}, ${esc(r.first_name)}</span>${r.archived ? ' <span class="pill">Archived</span>' : ''}<div class="xs muted">${esc(r.email || '')}</div></td><td class="sm">${esc(r.ftn || '—')}<div class="xs muted">${esc(r.cert_held || '')}</div></td>
+          <td class="sm">${l ? esc((GR[l.grade_sought] || l.test_type || 'Checkride') + (l.class ? ' ' + l.class : '')) + `<div class="xs muted">${esc(l.scheduled_at ? fmtDate(l.scheduled_at) : 'Date not set')}${l.knowledge_test && E.ktTests(l.knowledge_test).length ? ' · ' + esc(E.ktTests(l.knowledge_test).map((t) => E.ktCode(t)).join(', ')) : ''}</div>` : '<span class="muted">None yet</span>'}</td>
+          <td class="sm">${esc((l && l.recommending_instructor) || '—')}<div class="xs muted">${esc((l && l.school) || '')}</div></td><td class="sm">${cl.length}</td></tr>`; }).join('') : `<tr><td colspan="5"><div class="empty"><span class="strong">No applicants found</span>${canEdit ? 'Add one with the button above.' : ''}</div></td></tr>`;
       bindRows(qs('#tb', c));
     };
     qs('#srch', c).oninput = render; qs('#arch', c).onchange = render; render();
-    if (qs('#add', c)) qs('#add', c).onclick = () => applicantForm(null, (id) => go('#/applicant/' + id));
+    if (qs('#add', c)) qs('#add', c).onclick = () => applicantForm(null, (id, isNew) => go('#/applicant/' + id + (isNew ? '?addCheckride=1' : '')));
+  }
+  // Knowledge test rows, used on the checkride form. read() returns { tests, aktr } or { error }.
+  function ktEditor(wrap, tests, hint) {
+    wrap.innerHTML = `<div class="card-head" style="margin:0"><h3 style="margin:0">Knowledge tests for this checkride</h3><button type="button" class="btn sm ghost" data-kt="add">Add knowledge test</button></div>
+      <p class="xs muted" style="margin:.2rem 0 .4rem">${esc(hint || 'Add each test that applies to this checkride, for example IRA for an instrument rating, or FOI and FIA for a flight instructor. Only the AKTR codes from these tests are used in the plan. Valid-until fills in from 61.39 (24 calendar months; ATM 60).')}</p>
+      <div data-kt="rows"></div><datalist id="ktCodes">${Object.entries(E.KT_CATALOG).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('')}</datalist>`;
+    const box = qs('[data-kt="rows"]', wrap);
+    const addRow = (t) => {
+      t = t || {}; const d = document.createElement('div'); d.className = 'kt-row';
+      d.innerHTML = `<div class="form-grid4"><label>Test code<input data-k="test" list="ktCodes" placeholder="e.g. IRA" value="${esc(t.test)}" autocapitalize="characters"><span class="xs muted" data-k="name">${esc(E.KT_CATALOG[E.ktCode(t)] || '')}</span></label><label>Date taken<input data-k="date" type="date" value="${esc(t.date)}"></label>
+        <label>Score (%)<input data-k="score" inputmode="numeric" value="${esc(t.score)}"></label><label>Valid until<input data-k="expires" type="date" value="${esc(t.expires)}"></label></div>
+        <label>AKTR deficiency codes for this test<textarea data-k="aktr" placeholder="e.g. IR.I.C.K2, IR.VI.A.K1" style="min-height:48px">${esc((t.aktr || []).join(', '))}</textarea></label>
+        <div class="btn-row" style="justify-content:flex-end;margin:.2rem 0 0"><button type="button" class="btn sm ghost" data-k="rm">Remove test</button></div>`;
+      const g = (k) => qs(`[data-k="${k}"]`, d);
+      const auto = () => { const code = E.ktCode({ test: g('test').value }); g('name').textContent = E.KT_CATALOG[code] || ''; const v = E.ktValidUntil(code, g('date').value); if (v && (!g('expires').value || g('expires').dataset.auto === '1')) { g('expires').value = v; g('expires').dataset.auto = '1'; } };
+      g('test').addEventListener('input', auto); g('date').addEventListener('change', auto); g('expires').addEventListener('input', () => { g('expires').dataset.auto = ''; });
+      g('rm').onclick = () => d.remove(); box.appendChild(d);
+    };
+    const set = (list) => { box.innerHTML = ''; (list && list.length ? list : [{}]).forEach(addRow); };
+    set(tests);
+    qs('[data-kt="add"]', wrap).onclick = () => { addRow({}); qs('[data-k="test"]', box.lastElementChild).focus(); };
+    const read = () => {
+      const list = qsa('.kt-row', wrap).map((d) => { const g = (k) => qs(`[data-k="${k}"]`, d).value.trim(); return { test: g('test').toUpperCase(), date: g('date'), score: g('score'), expires: g('expires'), aktr: aktrList(g('aktr')) }; }).filter((t) => t.test || t.date || t.score || t.aktr.length);
+      const codes = Array.from(new Set([].concat(...list.map((t) => t.aktr))));
+      const bad = codes.filter((x) => !AKTR_RE.test(x));
+      if (bad.length) return { error: 'These do not look like ACS codes: ' + bad.join(', ') };
+      if (list.some((t) => !t.test)) return { error: 'Enter the test code for each knowledge test, for example IRA or FOI.' };
+      return { tests: list, aktr: codes };
+    };
+    const isEmpty = () => !qsa('.kt-row', wrap).some((d) => qsa('input,textarea', d).some((x) => x.value.trim()));
+    return { read, set, isEmpty };
   }
   function applicantForm(a, done) {
-    a = a || { knowledge_test: {} }; const kts = E.ktTests(a.knowledge_test);
-    modal(`<h2>${a.id ? 'Edit applicant' : 'Add applicant'}</h2><div id="err"></div><form id="f">
+    a = a || {};
+    modal(`<h2>${a.id ? 'Edit applicant' : 'Add applicant'}</h2><p class="xs muted" style="margin-top:-.3rem">Person details only. Test date, test type, knowledge test results, IACRA application, instructor and school go on each checkride.</p><div id="err"></div><form id="f">
       <div class="form-grid"><label>First name<input name="first_name" required value="${esc(a.first_name)}"></label><label>Last name<input name="last_name" required value="${esc(a.last_name)}"></label>
-      <label>Email<input name="email" type="email" value="${esc(a.email)}"></label><label>Phone<input name="phone" value="${esc(a.phone)}"></label>
-      <label>FAA Tracking Number (FTN)<input name="ftn" value="${esc(a.ftn)}" maxlength="12"></label><label>IACRA application ID<input name="iacra_app_id" value="${esc(a.iacra_app_id)}"></label>
-      <label>Certificate / ratings held<input name="cert_held" placeholder="e.g. Private ASEL" value="${esc(a.cert_held)}"></label><label>Certificate number (last 4 only)<input name="cert_number_last4" maxlength="4" value="${esc(a.cert_number_last4)}"></label>
+      <label>FAA Tracking Number (FTN)<input name="ftn" value="${esc(a.ftn)}" maxlength="12"></label><label>Email<input name="email" type="email" value="${esc(a.email)}"></label>
+      <label>Phone<input name="phone" value="${esc(a.phone)}"></label><label>Certificate / ratings held<input name="cert_held" placeholder="e.g. Private ASEL" value="${esc(a.cert_held)}"></label>
+      <label>Certificate number (last 4 only)<input name="cert_number_last4" maxlength="4" value="${esc(a.cert_number_last4)}"></label>
       <label>Medical class<select name="medical_class">${['', 'First', 'Second', 'Third', 'BasicMed', 'Not required'].map((x) => `<option ${a.medical_class === x ? 'selected' : ''}>${x}</option>`).join('')}</select></label><label>Medical date<input name="medical_date" type="date" value="${esc(a.medical_date)}"></label>
-      <label>Recommending instructor<input name="recommending_instructor" value="${esc(a.recommending_instructor)}"></label><label>Instructor certificate number<input name="instructor_cert_number" maxlength="20" value="${esc(a.instructor_cert_number)}"></label>
-      <label class="full">School / flight department<input name="school" value="${esc(a.school)}"></label>
-      <div class="full"><div class="card-head" style="margin:0"><h3 style="margin:0">Knowledge tests</h3><button type="button" class="btn sm ghost" id="ktAdd">Add knowledge test</button></div>
-        <p class="xs muted" style="margin:.2rem 0 .4rem">Add each test that applies to the checkride, for example FOI and FIA for a flight instructor, or CAX plus IRA when both are being tested. AKTR codes from every test are added to the plan automatically. Valid-until fills in from 61.39 (24 calendar months; ATM 60).</p>
-        <div id="ktRows"></div><datalist id="ktCodes">${Object.entries(E.KT_CATALOG).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('')}</datalist></div>
       <label class="full">Notes<textarea name="notes" style="min-height:60px">${esc(a.notes)}</textarea></label></div>
       <p class="xs muted">Store only what you need. Full certificate numbers, dates of birth and ID numbers are intentionally not collected; IACRA remains the system of record.</p>
-      <div class="btn-row" style="justify-content:flex-end"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn" type="submit">Save</button></div></form>`,
+      <div class="btn-row" style="justify-content:flex-end"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn" type="submit">${a.id ? 'Save' : 'Save and add checkride'}</button></div></form>`,
     (bg, close) => {
-      const box = qs('#ktRows', bg);
-      const addRow = (t) => {
-        t = t || {}; const d = document.createElement('div'); d.className = 'kt-row';
-        d.innerHTML = `<div class="form-grid4"><label>Test code<input data-k="test" list="ktCodes" placeholder="e.g. FOI" value="${esc(t.test)}" autocapitalize="characters"><span class="xs muted" data-k="name">${esc(E.KT_CATALOG[E.ktCode(t)] || '')}</span></label><label>Date taken<input data-k="date" type="date" value="${esc(t.date)}"></label>
-          <label>Score (%)<input data-k="score" inputmode="numeric" value="${esc(t.score)}"></label><label>Valid until<input data-k="expires" type="date" value="${esc(t.expires)}"></label></div>
-          <label>AKTR deficiency codes for this test<textarea data-k="aktr" placeholder="e.g. PA.I.C.K2, PA.IX.A.K1" style="min-height:48px">${esc((t.aktr || []).join(', '))}</textarea></label>
-          <div class="btn-row" style="justify-content:flex-end;margin:.2rem 0 0"><button type="button" class="btn sm ghost" data-k="rm">Remove test</button></div>`;
-        const g = (k) => qs(`[data-k="${k}"]`, d);
-        const auto = () => { const code = E.ktCode({ test: g('test').value }); g('name').textContent = E.KT_CATALOG[code] || ''; const v = E.ktValidUntil(code, g('date').value); if (v && (!g('expires').value || g('expires').dataset.auto === '1')) { g('expires').value = v; g('expires').dataset.auto = '1'; } };
-        g('test').addEventListener('input', auto); g('date').addEventListener('change', auto); g('expires').addEventListener('input', () => { g('expires').dataset.auto = ''; });
-        g('rm').onclick = () => d.remove(); box.appendChild(d);
-      };
-      (kts.length ? kts : [{}]).forEach(addRow);
-      qs('#ktAdd', bg).onclick = () => { addRow({}); const r = box.lastElementChild; qs('[data-k="test"]', r).focus(); };
       qs('#f', bg).addEventListener('submit', async (e) => {
         e.preventDefault(); const f = e.target;
-        const tests = qsa('.kt-row', bg).map((d) => { const g = (k) => qs(`[data-k="${k}"]`, d).value.trim(); return { test: g('test').toUpperCase(), date: g('date'), score: g('score'), expires: g('expires'), aktr: aktrList(g('aktr')) }; }).filter((t) => t.test || t.date || t.score || t.aktr.length);
-        const codes = Array.from(new Set([].concat(...tests.map((t) => t.aktr))));
-        const bad = codes.filter((x) => !AKTR_RE.test(x));
-        if (bad.length) { qs('#err', bg).innerHTML = `<div class="err">These do not look like ACS codes: ${esc(bad.join(', '))}</div>`; return; }
-        const noCode = tests.filter((t) => !t.test); if (noCode.length) { qs('#err', bg).innerHTML = '<div class="err">Enter the test code for each knowledge test, for example PAR or FOI.</div>'; return; }
-        const f0 = tests[0] || {};
         const row = { first_name: f.first_name.value.trim(), last_name: f.last_name.value.trim(), email: f.email.value.trim() || null, phone: f.phone.value.trim() || null, ftn: f.ftn.value.trim() || null,
-          iacra_app_id: f.iacra_app_id.value.trim() || null, cert_held: f.cert_held.value.trim() || null, cert_number_last4: f.cert_number_last4.value.trim() || null, medical_class: f.medical_class.value || null,
-          medical_date: f.medical_date.value || null, recommending_instructor: f.recommending_instructor.value.trim() || null, instructor_cert_number: f.instructor_cert_number.value.trim() || null, school: f.school.value.trim() || null, notes: f.notes.value.trim() || null,
-          knowledge_test: { tests, aktr: codes, test: f0.test || '', date: f0.date || '', score: f0.score || '', expires: f0.expires || '' } };
+          cert_held: f.cert_held.value.trim() || null, cert_number_last4: f.cert_number_last4.value.trim() || null, medical_class: f.medical_class.value || null, medical_date: f.medical_date.value || null, notes: f.notes.value.trim() || null };
         const b = qs('button[type=submit]', f);
         try {
           const r = await act(b, async () => a.id ? q(sb.from('applicants').update(row).eq('id', a.id).select().single()) : q(sb.from('applicants').insert(Object.assign(row, { org_id: S.orgId, created_by: S.ctx.user_id })).select().single()), 'Saved');
-          close(); done && done(r.id);
+          close(); done && done(r.id, !a.id);
         } catch (_) {}
       });
     });
   }
-  async function viewApplicant(id) {
+  async function viewApplicant(id, params) {
     const c = shell('applicants');
     const a = await q(sb.from('applicants').select('*').eq('id', id).single());
     const showPoa = can('org_admin', 'examiner', 'auditor');
@@ -345,28 +354,64 @@
       showPoa ? q(sb.from('poas').select('id,title,status,purpose,test_date,version').eq('applicant_id', id).order('created_at', { ascending: false })) : [],
       q(sb.from('documents').select('*').eq('applicant_id', id).order('uploaded_at', { ascending: false })),
       showPoa ? q(sb.from('debriefs').select('id,poa_id,outcome,status,test_date,unsat_codes').eq('applicant_id', id).order('created_at', { ascending: false })) : [],
-      q(sb.from('checkrides').select('*').eq('applicant_id', id).order('scheduled_at', { ascending: false })),
+      q(sb.from('checkrides').select('*').eq('applicant_id', id).order('scheduled_at', { ascending: false, nullsFirst: true })),
     ]);
     const aflags = await A2().flagsFor(id);
-    const kts = E.ktTests(a.knowledge_test);
     const canEdit = can('org_admin', 'examiner', 'office');
-    c.innerHTML = head(esc(a.first_name + ' ' + a.last_name), esc([a.cert_held, a.school].filter(Boolean).join(' · ')) || 'Applicant record',
-      A2().flagButton('applicant', a.id) + (canEdit ? '<button class="btn ghost" id="edit">Edit</button>' : '') + (can('org_admin', 'examiner') ? `<a class="btn" href="#/poa/new?applicant=${a.id}">New plan of action</a>` : '')) +
-      `${aflags.length ? `<div class="banner warn"><b>Flagged in Data Review:</b> ${aflags.map((x) => esc(x.title)).join('; ')}. <a href="#/data-review">Review</a></div>` : ''}<div class="grid2"><div class="card"><h2>Record</h2><table class="t">
-        ${[['Email', a.email], ['Phone', a.phone], ['FTN', a.ftn], ['IACRA application', a.iacra_app_id], ['Held', a.cert_held], ['Certificate no. (last 4)', a.cert_number_last4], ['Medical', [a.medical_class, fmtDate(a.medical_date)].filter(Boolean).join(' · ')], ['Recommending instructor', a.recommending_instructor], ['Instructor certificate no.', a.instructor_cert_number], ['School', a.school]].map(([k, v]) => `<tr><td class="sm muted" style="width:40%">${k}</td><td class="sm">${esc(v || '—')}</td></tr>`).join('')}
-        </table>${a.notes ? `<p class="sm">${esc(a.notes)}</p>` : ''}</div>
-        <div class="card"><h2>Knowledge tests</h2>${kts.length ? kts.map((t) => { const code = E.ktCode(t); const until = t.expires || E.ktValidUntil(code, t.date); const exp = until && until < today();
-          return `<div class="kt-view"><div class="strong">${esc(code || 'Test')} <span class="sm muted" style="font-weight:400">${esc(E.KT_CATALOG[code] || '')}</span>${exp ? ' <span class="pill bad">Expired</span>' : ''}</div>
-          <div class="sm">${esc([t.date ? 'Taken ' + fmtDate(t.date) : '', t.score ? t.score + '%' : '', until ? 'valid until ' + fmtDate(until) : ''].filter(Boolean).join(' · ') || '—')}</div>
-          ${(t.aktr || []).length ? `<div class="chips" style="margin-top:.3rem">${t.aktr.map((x) => `<span class="chip">${esc(x)}</span>`).join('')}</div>` : '<div class="xs muted">No AKTR codes recorded.</div>'}</div>`; }).join('') : '<p class="sm muted">None recorded.</p>'}</div></div>
+    const CR = window.SPOA.CR; const PO = Object.fromEntries(poas.map((p) => [p.id, p]));
+    const ktLine = (t) => { const code = E.ktCode(t); const until = t.expires || E.ktValidUntil(code, t.date); const exp = until && until < today();
+      return `<div class="sm"><span class="strong">${esc(code || 'Test')}</span> <span class="muted">${esc(E.KT_CATALOG[code] || '')}</span>${exp ? ' <span class="pill bad">Expired</span>' : ''} <span class="xs muted">${esc([t.date ? fmtDate(t.date) : '', t.score ? t.score + '%' : '', until ? 'valid until ' + fmtDate(until) : ''].filter(Boolean).join(' · '))}</span>
+        ${(t.aktr || []).length ? `<div class="chips" style="margin:.2rem 0 .3rem">${t.aktr.map((x) => `<span class="chip">${esc(x)}</span>`).join('')}</div>` : '<div class="xs muted">No AKTR codes recorded.</div>'}</div>`; };
+    const crBlock = (r) => { const kl = E.ktTests(r.knowledge_test); const pl = r.poa_id && PO[r.poa_id];
+      return `<div class="cr-block"><div class="cr-top"><div><div class="strong">${esc(r.test_type || 'Checkride')} — ${esc(CR.GRADES[r.grade_sought] || 'grade not set')} ${esc(r.class || '')}</div>
+        <div class="xs muted">${esc([r.scheduled_at ? fmtDT(r.scheduled_at) : 'Date not set', r.departure_airport, r.aircraft_make_model, r.tail_number].filter(Boolean).join(' · '))}</div></div><div>${CR.resultPill(r.result)}${pl ? ' ' + statusPill(pl.status) : ''}</div></div>
+        <div class="cr-grid"><div><div class="xs muted">IACRA application</div><div class="sm">${esc(r.iacra_app_id || '—')}</div></div><div><div class="xs muted">Recommending instructor</div><div class="sm">${esc(r.recommending_instructor || '—')}${r.instructor_cert_number ? ' <span class="xs muted">' + esc(r.instructor_cert_number) + '</span>' : ''}</div></div><div><div class="xs muted">School</div><div class="sm">${esc(r.school || '—')}</div></div></div>
+        <div style="margin-top:.4rem"><div class="xs muted">Knowledge tests</div>${kl.length ? kl.map(ktLine).join('') : '<div class="sm muted">None recorded for this checkride.</div>'}</div>
+        <div class="btn-row" style="margin:.5rem 0 0;flex-wrap:wrap">${canEdit ? `<button class="btn ghost sm" data-cr="${r.id}">Edit checkride</button>` : ''}${can('org_admin', 'examiner') ? (r.poa_id ? `<a class="btn sm" href="#/poa/${r.poa_id}">Open plan of action</a>` : `<a class="btn sm" href="#/poa/new?checkride=${r.id}">Build plan of action</a>`) : ''}${can('org_admin') ? `<button class="btn danger sm" data-crdel="${r.id}">Delete</button>` : ''}</div></div>`; };
+    const legacy = E.ktTests(a.knowledge_test);
+    c.innerHTML = head(esc(a.first_name + ' ' + a.last_name), esc([a.ftn ? 'FTN ' + a.ftn : '', a.cert_held].filter(Boolean).join(' · ')) || 'Applicant record',
+      A2().flagButton('applicant', a.id) + (canEdit ? '<button class="btn ghost" id="edit">Edit applicant</button>' : '') + (can('org_admin') ? '<button class="btn danger" id="delA">Delete applicant</button>' : '') + (canEdit ? '<button class="btn" id="addCr">Add checkride</button>' : '')) +
+      `${aflags.length ? `<div class="banner warn"><b>Flagged in Data Review:</b> ${aflags.map((x) => esc(x.title)).join('; ')}. <a href="#/data-review">Review</a></div>` : ''}
+      <div class="steps-hint xs muted">1 Applicant &rarr; 2 Checkride (date, test, knowledge test, IACRA, instructor, school) &rarr; 3 Plan of action</div>
+      <div class="grid2"><div class="card"><h2>Applicant</h2><table class="t">
+        ${[['FTN', a.ftn], ['Email', a.email], ['Phone', a.phone], ['Held', a.cert_held], ['Certificate no. (last 4)', a.cert_number_last4], ['Medical', [a.medical_class, fmtDate(a.medical_date)].filter(Boolean).join(' · ')]].map(([k, v]) => `<tr><td class="sm muted" style="width:40%">${k}</td><td class="sm">${esc(v || '—')}</td></tr>`).join('')}
+        </table>${a.notes ? `<p class="sm">${esc(a.notes)}</p>` : ''}
+        ${legacy.length && !crs.length ? `<p class="xs muted">Knowledge tests from the earlier applicant record (${esc(legacy.map((t) => E.ktCode(t)).join(', '))}) are offered when you add a checkride.</p>` : ''}</div>
+      <div class="card"><div class="card-head"><h2>Checkrides</h2></div>${crs.length ? crs.map(crBlock).join('') : `<div class="empty sm"><span class="strong">No checkrides yet</span>Add a checkride, then build the plan of action from it.</div>`}</div></div>
       ${showPoa ? `<div class="card"><div class="card-head"><h2>Plans of action</h2></div>${poas.length ? `<table class="t"><thead><tr><th>Plan</th><th>Status</th><th>Test date</th></tr></thead>${poas.map((p) => `<tr class="click" data-h="#/poa/${p.id}"><td>${esc(p.title)} <span class="xs muted">v${p.version}</span></td><td>${statusPill(p.status)}</td><td class="sm">${fmtDate(p.test_date)}</td></tr>`).join('')}</table>` : '<div class="empty sm">No plans yet.</div>'}</div>
       <div class="card"><h2>Results</h2>${dbs.length ? `<table class="t"><thead><tr><th>Date</th><th>Outcome</th><th>Unsatisfactory ACS codes</th></tr></thead>${dbs.map((d) => `<tr class="click" data-h="#/debrief/${d.poa_id}"><td class="sm">${fmtDate(d.test_date)}</td><td>${outcomePill(d.outcome, d.status)}</td><td class="sm mono">${esc((d.unsat_codes || []).join(', ') || '—')}</td></tr>`).join('')}</table>` : '<div class="empty sm">No results recorded.</div>'}</div>` : ''}
-      <div class="card"><div class="card-head"><h2>Checkrides</h2>${canEdit ? `<a class="btn sm ghost" href="#/schedule?all=1&new=1&applicant=${a.id}">Schedule checkride</a>` : ''}</div>${crs.length ? `<table class="t"><thead><tr><th>Date</th><th>Test</th><th>Result</th><th>Ground / flight</th></tr></thead>${crs.map((r) => `<tr class="click" data-h="#/schedule?all=1&open=${r.id}"><td class="sm">${esc(fmtDT(r.scheduled_at) || '—')}</td><td class="sm">${esc(r.test_type)}<div class="xs muted">${esc([(window.SPOA.CR.GRADES[r.grade_sought] || ''), r.class, r.departure_airport].filter(Boolean).join(' · '))}</div></td><td>${window.SPOA.CR.resultPill(r.result)}</td><td class="sm">${r.ground_time != null ? (+r.ground_time).toFixed(1) : '—'} / ${r.flight_time != null ? (+r.flight_time).toFixed(1) : '—'}</td></tr>`).join('')}</table>` : '<div class="empty sm">No checkride records.</div>'}</div>
       <div class="card"><div class="card-head"><h2>Documents</h2>${canEdit ? '<button class="btn sm" id="up">Upload</button>' : ''}</div><div id="docs"></div></div>`;
     bindRows(c); A2().bindFlagButtons(c);
     renderDocs(qs('#docs', c), docs);
+    const openCr = (r) => CR.checkrideForm(r || { applicant_id: a.id }, [a], () => route());
     if (qs('#edit', c)) qs('#edit', c).onclick = () => applicantForm(a, () => route());
+    if (qs('#addCr', c)) qs('#addCr', c).onclick = () => openCr(null);
+    qsa('[data-cr]', c).forEach((b) => b.onclick = () => openCr(crs.find((r) => r.id === b.dataset.cr)));
+    qsa('[data-crdel]', c).forEach((b) => b.onclick = () => CR.deleteCheckride(crs.find((r) => r.id === b.dataset.crdel), PO, () => route()));
     if (qs('#up', c)) qs('#up', c).onclick = () => uploadDoc({ applicant_id: a.id }, () => route());
+    if (qs('#delA', c)) qs('#delA', c).onclick = () => deleteApplicant(a, { crs: crs.length, poas: poas.length, docs: docs.length, dbs: dbs.length });
+    if (params && params.get('addCheckride') && canEdit) { history.replaceState(null, '', '#/applicant/' + a.id); openCr(null); }
+  }
+  // Remove an applicant and everything recorded for them. Org admins only; typed-name confirmation.
+  function deleteApplicant(a, n) {
+    const nm = (a.first_name + ' ' + a.last_name).trim();
+    modal(`<h2>Delete ${esc(nm)}?</h2><p class="sm">This permanently removes the applicant and ${n.crs} checkride(s), ${n.poas} plan(s) of action including finalized ones, ${n.dbs} result(s) and ${n.docs} document(s). Use it for records created by mistake or for test data. The audit log keeps a record that the rows were deleted.</p>
+      <label class="sm">Type the applicant's name to confirm<input id="cf" autocomplete="off" placeholder="${esc(nm)}"></label>
+      <div class="btn-row" style="justify-content:flex-end"><button class="btn ghost" data-close>Cancel</button><button class="btn danger" id="ok" disabled>Delete permanently</button></div>`, (bg, close) => {
+      const cf = qs('#cf', bg); const ok = qs('#ok', bg);
+      cf.oninput = () => { ok.disabled = cf.value.trim().toLowerCase() !== nm.toLowerCase(); };
+      ok.onclick = async () => {
+        try {
+          await act(ok, async () => {
+            const docs = await q(sb.from('documents').select('storage_path').eq('applicant_id', a.id));
+            const paths = docs.map((d) => d.storage_path).filter(Boolean);
+            if (paths.length) { const { error } = await sb.storage.from('records').remove(paths); if (error) throw error; }
+            await rpc('delete_applicant', { p_id: a.id });
+          }, 'Applicant deleted');
+          close(); go('#/applicants');
+        } catch (_) {}
+      };
+    });
   }
   const statusPill = (s) => `<span class="pill ${s === 'final' ? 'accent' : s === 'completed' ? 'ok' : s === 'void' ? 'bad' : 'warn'}">${s === 'final' ? 'Finalized' : s === 'completed' ? 'Completed' : s === 'void' ? 'Void' : 'Draft'}</span>`;
   const outcomePill = (o, st) => o ? `<span class="pill ${o === 'pass' ? 'ok' : o === 'fail' ? 'bad' : 'warn'}">${{ pass: 'Pass', fail: 'Disapproved', discontinued: 'Discontinued', incomplete: 'Incomplete' }[o]}</span>${st === 'signed' ? '' : ' <span class="pill">Unsigned</span>'}` : '<span class="pill">In progress</span>';
@@ -461,16 +506,20 @@
     const c = shell('poas');
     if (!can('org_admin', 'examiner')) { c.innerHTML = '<div class="banner warn">Only examiners and administrators can create plans of action.</div>'; return; }
     await loadStd();
-    const [apps, acs, prior] = await Promise.all([q(sb.from('applicants').select('id,first_name,last_name,cert_held,knowledge_test').eq('org_id', S.orgId).eq('archived', false).order('last_name')), q(sb.from('aircraft').select('*').eq('org_id', S.orgId).eq('archived', false).order('tail')),
-      q(sb.from('debriefs').select('id,poa_id,applicant_id,results,outcome,test_date').eq('org_id', S.orgId).in('outcome', ['fail', 'discontinued']).eq('status', 'signed'))]);
+    const [apps, acs, prior, openCrs] = await Promise.all([q(sb.from('applicants').select('id,first_name,last_name,cert_held,ftn,knowledge_test,school,recommending_instructor,instructor_cert_number,iacra_app_id').eq('org_id', S.orgId).eq('archived', false).order('last_name')), q(sb.from('aircraft').select('*').eq('org_id', S.orgId).eq('archived', false).order('tail')),
+      q(sb.from('debriefs').select('id,poa_id,applicant_id,results,outcome,test_date').eq('org_id', S.orgId).in('outcome', ['fail', 'discontinued']).eq('status', 'signed')),
+      q(sb.from('checkrides').select('*').eq('org_id', S.orgId).is('poa_id', null).order('scheduled_at', { ascending: false, nullsFirst: true }))]);
     const crId = params.get('checkride');
-    const cr = crId ? await q(sb.from('checkrides').select('*').eq('id', crId).single()) : null;
+    const cr = crId ? (openCrs.find((x) => x.id === crId) || await q(sb.from('checkrides').select('*').eq('id', crId).single())) : null;
+    if (cr && cr.poa_id) { c.innerHTML = `<div class="banner warn">This checkride already has a plan of action. <a href="#/poa/${cr.poa_id}">Open it</a></div>`; return; }
+    const GR = window.SPOA.CR.GRADES;
     const orgSt = await A2().orgSettings();
     const pre = params.get('applicant') || (cr && cr.applicant_id);
     c.innerHTML = head('New plan of action', 'Choose the purpose and the certificate or rating. smartPOA selects the governing ACS or PTS and the required tasks.') +
       `<div class="card" style="max-width:820px"><form id="f"><div class="form-grid">
       <label>Purpose<select name="purpose">${Object.entries(E.PURPOSE_LABEL).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select><span class="xs muted" id="purHint"></span></label>
-      <label>Applicant<select name="applicant" required><option value="">Select…</option>${apps.map((a) => `<option value="${a.id}" ${a.id === pre ? 'selected' : ''}>${esc(a.last_name)}, ${esc(a.first_name)}${a.cert_held ? ' — ' + esc(a.cert_held) : ''}</option>`).join('')}</select>${apps.length ? '' : '<span class="xs"><a href="#/applicants">Add an applicant first</a></span>'}</label>
+      <label>Applicant<select name="applicant" required ${cr ? 'disabled' : ''}><option value="">Select…</option>${apps.map((a) => `<option value="${a.id}" ${a.id === pre ? 'selected' : ''}>${esc(a.last_name)}, ${esc(a.first_name)}${a.cert_held ? ' — ' + esc(a.cert_held) : ''}</option>`).join('')}</select>${apps.length ? '' : '<span class="xs"><a href="#/applicants">Add an applicant first</a></span>'}</label>
+      <label>Checkride<select name="checkride" id="crSel"></select><span class="xs muted" id="crHint"></span></label>
       <label>Certificate level<select name="cert"><option value="private">Private Pilot</option><option value="commercial">Commercial Pilot</option><option value="instrument">Instrument Rating</option><option value="atp">Airline Transport Pilot / type rating</option><option value="cfi">Flight Instructor (Airplane)</option><option value="cfii">Flight Instructor Instrument (CFII)</option></select></label>
       <label>Category / class for this test<select name="cls">${['ASEL', 'AMEL', 'ASES', 'AMES', 'RH', 'RG'].map((x) => `<option value="${x}">${x} — ${E.CLASS_LABEL[x]}</option>`).join('')}</select></label>
       <label id="heldL" style="display:none"><span id="heldT">Rating already held (for the Additional Rating Task Table)</span><select name="held"></select></label>
@@ -485,7 +534,7 @@
     const f = qs('#f', c);
     if (cr) {
       const pu = window.SPOA.CR.PURPOSE_OF[cr.test_type]; if (pu) f.purpose.value = pu;
-      if (cr.grade_sought) f.cert.value = cr.grade_sought;
+      if (cr.grade_sought) f.cert.value = cr.grade_sought; else if (/instrument/i.test(cr.test_type || '')) f.cert.value = 'instrument';
       if (cr.class) f.cls.value = cr.class;
       if (cr.scheduled_at) f.test_date.value = cr.scheduled_at.slice(0, 10);
       if (cr.departure_airport) f.location.value = cr.departure_airport;
@@ -500,11 +549,28 @@
       f.held.innerHTML = (cfii ? Object.entries(lbl) : E.HELD_OPTIONS.map((x) => [x, x])).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
       qs('#heldT', c).textContent = cfii ? 'Instructor rating already held (FAA-S-8081-9E add-on table)' : 'Rating already held (for the Additional Rating Task Table)';
     };
+    const crOf = () => cr || openCrs.find((x) => x.id === f.checkride.value) || null;
+    const fillCr = () => {
+      const app = f.applicant.value; const list = openCrs.filter((x) => x.applicant_id === app);
+      f.checkride.innerHTML = cr ? `<option value="${cr.id}">${esc([cr.test_type, GR[cr.grade_sought], cr.class, cr.scheduled_at ? fmtDate(cr.scheduled_at) : ''].filter(Boolean).join(' · '))}</option>`
+        : list.map((x) => `<option value="${x.id}">${esc([x.test_type, GR[x.grade_sought], x.class, x.scheduled_at ? fmtDate(x.scheduled_at) : 'date not set'].filter(Boolean).join(' · '))}</option>`).join('') + '<option value="">New checkride from the details below</option>';
+      f.checkride.disabled = !!cr;
+      qs('#crHint', c).innerHTML = app ? (f.checkride.value ? 'Knowledge tests, IACRA application, instructor and school come from this checkride.' : `A checkride record is created with this plan. Add knowledge tests on it afterwards, or <a href="#/applicant/${app}?addCheckride=1">add the checkride first</a>.`) : '';
+    };
+    // Knowledge tests for this plan: only the checkride's tests for this certificate level, and only codes written against this standard.
+    const ktFor = (prof, doc) => {
+      const app = apps.find((a) => a.id === f.applicant.value); const k = crOf();
+      const src = k ? E.ktTests(k.knowledge_test) : (app ? E.ktTests(app.knowledge_test) : []);
+      return Object.assign(E.ktForPlan(prof, doc, src), { from: k ? 'checkride' : 'applicant' });
+    };
     const ktShow = (prof, doc) => {
       const box = qs('#ktRes', c); const app = apps.find((a) => a.id === f.applicant.value);
       if (!app || !doc) { box.style.display = 'none'; return; }
-      const k = E.ktCheck(E.ktExpected(prof, doc), E.ktTests(app.knowledge_test), f.test_date.value);
-      box.style.display = ''; box.className = 'banner ' + (k.status === 'met' ? 'info' : 'warn'); box.innerHTML = '<b>Knowledge tests:</b> ' + esc(k.text) + ` <a href="#/applicant/${app.id}">Applicant record</a>`;
+      const kp = ktFor(prof, doc); const k = E.ktCheck(E.ktExpected(prof, doc), kp.tests, f.test_date.value);
+      box.style.display = ''; box.className = 'banner ' + (k.status === 'met' ? 'info' : 'warn');
+      box.innerHTML = `<b>Knowledge test used:</b> ${kp.tests.length ? esc(kp.tests.map((t) => E.ktCode(t) + (t.date ? ' (' + fmtDate(t.date) + (t.score ? ', ' + t.score + '%' : '') + ')' : '')).join(', ')) : 'none'}${kp.from === 'applicant' && kp.tests.length ? ' <span class="xs">(from the earlier applicant record)</span>' : ''}. ${esc(k.text)}
+        <div style="margin-top:.35rem"><b>AKTR codes to be tested (${kp.aktr.length}):</b> ${kp.aktr.length ? `<span class="chips">${kp.aktr.map((x) => `<span class="chip">${esc(x)}</span>`).join('')}</span>` : 'none recorded'}</div>
+        ${kp.skipped.length ? `<div class="xs" style="margin-top:.3rem">Not used for this plan (other certificate level): ${esc(kp.skipped.join(', '))}.</div>` : ''}${kp.dropped.length ? `<div class="xs">Codes from another standard left out: ${esc(kp.dropped.join(', '))}.</div>` : ''}`;
     };
     const sync = () => {
       const p = f.purpose.value; setHeld(); qs('#purHint', c).textContent = PUR_HINT[p] || '';
@@ -522,7 +588,16 @@
       qs('#res', c).className = 'banner info';
       qs('#res', c).innerHTML = `Governing standard: <b>${esc(r.doc.num)}</b> — ${esc(r.doc.title)} (${esc(r.doc.edition_date)}). ${t.filter((x) => x.required).length} of ${t.length} tasks required for this profile.` + (p === 'added_rating' && !r.doc.select_rules && !(r.doc.additional_rating && r.doc.additional_rating[prof.cls]) ? ' <br>This standard has no Additional Rating Task Table for ' + esc(prof.cls) + '; all applicable tasks are listed and you can mark exclusions with a reason.' : '');
     };
-    ['purpose', 'cert', 'cls', 'held', 'atpCert', 'applicant', 'test_date'].forEach((n) => f[n].addEventListener('change', sync));
+    ['purpose', 'cert', 'cls', 'held', 'atpCert', 'test_date'].forEach((n) => f[n].addEventListener('change', sync));
+    const applyCr = (k) => {
+      if (!k) return; const pu = window.SPOA.CR.PURPOSE_OF[k.test_type]; if (pu) f.purpose.value = pu;
+      if (k.grade_sought) f.cert.value = k.grade_sought; else if (/instrument/i.test(k.test_type || '')) f.cert.value = 'instrument'; if (k.class) f.cls.value = k.class;
+      if (k.scheduled_at) f.test_date.value = k.scheduled_at.slice(0, 10); if (k.departure_airport) f.location.value = k.departure_airport;
+      const tailOpt = Array.from(f.aircraft.options).find((o) => k.tail_number && o.textContent.toUpperCase().startsWith(k.tail_number.toUpperCase())); if (tailOpt) f.aircraft.value = tailOpt.value;
+    };
+    f.applicant.addEventListener('change', () => { fillCr(); applyCr(crOf()); sync(); });
+    f.checkride.addEventListener('change', () => { fillCr(); applyCr(crOf()); sync(); });
+    fillCr(); if (!cr) applyCr(crOf());
     f.aircraft.addEventListener('change', () => { const o = f.aircraft.selectedOptions[0]; if (o && o.dataset.cls) { f.cls.value = o.dataset.cls; if (o.dataset.type) f.typeDesignator.value = o.dataset.type; sync(); } });
     sync();
     f.addEventListener('submit', async (e) => {
@@ -536,9 +611,8 @@
         prof.retestOf = d.id;
       }
       const app = apps.find((a) => a.id === f.applicant.value); if (!app) { toast('Select an applicant.', true); return; }
-      const appFull = await q(sb.from('applicants').select('knowledge_test').eq('id', app.id).single());
-      const ktl = E.ktTests(appFull.knowledge_test);
-      const aktr = Array.from(new Set([].concat(...ktl.map((t) => t.aktr || []), (appFull.knowledge_test && appFull.knowledge_test.aktr) || [])));
+      const kp = ktFor(prof, r.doc); const ktl = kp.tests; const aktr = kp.aktr;
+      let crow = crOf();
       const usage = await elementUsage();
       const tasks = E.requiredTasks(r.doc, prof, { usage });
       if ((r.doc.cfi_matrix && prof.cert === 'cfi') || r.doc.select_rules) prof.cfiPicks = tasks.filter((t) => t.required).map((t) => t.key);
@@ -546,14 +620,27 @@
       tasks.forEach((t) => { const s = E.selectElements(r.doc, t.area, t.task, { aktr, usage, cls: prof.cls }); content.tasks[t.key] = { included: t.required, elements: t.required ? s.selected : [], why: s.why, method: defaultMethod(t), excludeReason: '' }; });
       Object.keys(E.DEFAULT_BRIEFINGS).forEach((k) => content.briefings[k] = (((orgSt.briefings || {})[k]) || E.DEFAULT_BRIEFINGS[k]).replace(/\{std\}/g, r.doc.num));
       const sp = E.scenarioProfile(orgSt, prof.cert);
-      if (cr) { content.scenario.dep = cr.departure_airport || ''; content.checkride = { id: cr.id, test_type: cr.test_type, basis: cr.basis, preapproval_number: cr.preapproval_number, scheduled_at: cr.scheduled_at, aircraft: cr.aircraft_make_model, tail: cr.tail_number, notes: cr.notes }; }
+      if (!crow) {
+        // No checkride yet: create one from this form so applicant, checkride and plan stay linked.
+        const TT = { practical_test: prof.cert === 'instrument' ? 'Instrument Rating' : 'Original Certificate', added_rating: 'Additional Rating', retest: prof.cert === 'instrument' ? 'Retest for Instrument Rating' : 'Retest for Original Certificate', continuation: 'Continued from Previously Discontinued Test', reinstatement: 'Reinstatement of CFI', type_rating: 'Type Rating', mock_checkride: 'Mock Checkride', training: 'Mock Checkride' };
+        const acx = acs.find((a) => a.id === f.aircraft.value);
+        try {
+          crow = await q(sb.from('checkrides').insert({ org_id: S.orgId, applicant_id: app.id, examiner_id: S.ctx.user_id, created_by: S.ctx.user_id, source: 'manual', test_type: TT[prof.purpose] || 'Original Certificate', grade_sought: prof.cert, class: prof.cls,
+            scheduled_at: f.test_date.value ? new Date(f.test_date.value + 'T12:00:00').toISOString() : null, departure_airport: (f.location.value.trim().match(/^[A-Z0-9]{3,5}\b/i) || [''])[0].toUpperCase() || null,
+            aircraft_make_model: acx ? acx.make_model : null, tail_number: acx ? acx.tail : null, school: app.school || null, recommending_instructor: app.recommending_instructor || null, instructor_cert_number: app.instructor_cert_number || null, iacra_app_id: app.iacra_app_id || null,
+            knowledge_test: { tests: ktl, aktr: Array.from(new Set([].concat(...ktl.map((t) => t.aktr || [])))) } }).select('*').single());
+        } catch (er) { toast('Could not create the checkride record: ' + friendly(er), true); return; }
+      }
+      content.scenario.dep = content.scenario.dep || crow.departure_airport || '';
+      content.checkride = { id: crow.id, test_type: crow.test_type, basis: crow.basis, preapproval_number: crow.preapproval_number, scheduled_at: crow.scheduled_at, aircraft: crow.aircraft_make_model, tail: crow.tail_number, notes: crow.notes,
+        iacra_app_id: crow.iacra_app_id, school: crow.school, recommending_instructor: crow.recommending_instructor, instructor_cert_number: crow.instructor_cert_number };
       if (sp) { content.scenario.profile = sp; if (sp.arrival && !content.scenario.dest) content.scenario.dest = sp.arrival; if (sp.weather) content.scenario.weather = sp.weather; }
       const ac = acs.find((a) => a.id === f.aircraft.value);
       const row = { org_id: S.orgId, applicant_id: app.id, aircraft_id: ac ? ac.id : null, examiner_id: S.ctx.user_id, purpose: prof.purpose, test_profile: prof, standard_id: r.doc.id,
         standard_sha256: ((S.docsDb || []).find((d) => d.id === r.doc.id) || {}).sha256 || r.doc.sha256, test_date: f.test_date.value || null, location: f.location.value.trim() || null, title: profileTitle(prof, app), content };
       try {
         const p = await act(qs('button[type=submit]', f), () => q(sb.from('poas').insert(row).select('id').single()));
-        if (cr) { try { await q(sb.from('checkrides').update({ poa_id: p.id }).eq('id', cr.id)); } catch (_) { toast('Plan created, but the checkride record could not be linked.', true); } }
+        try { await q(sb.from('checkrides').update({ poa_id: p.id }).eq('id', crow.id)); } catch (_) { toast('Plan created, but the checkride record could not be linked.', true); }
         go('#/poa/' + p.id + '?step=tasks');
       } catch (_) {}
     });
@@ -643,13 +730,66 @@
         </table><p class="xs muted">The profile decides the governing standard and the required tasks. To change it, create a new plan.</p></div>
         <div class="card"><h2>Governing standard</h2><p class="sm"><b>${esc(doc.num)}</b> — ${esc(doc.title)}<br>Edition ${esc(doc.edition_date)} · Incorporated by reference in 14 CFR 61.14, effective May 31, 2024</p>
         <p class="xs muted mono">FAA file SHA-256 ${esc((p.standard_sha256 || '').slice(0, 32))}…</p><p class="sm"><a href="${esc(doc.url)}" target="_blank" rel="noopener">Open the FAA PDF</a></p></div></div>
+        ${setupKtCard()}
         <div class="card"><h2>Logistics</h2><div class="form-grid"><label>Title<input id="ti" ${dis} value="${esc(p.title)}"></label><label>Test date<input id="td" type="date" ${dis} value="${esc(p.test_date)}"></label><label class="full">Location<input id="lo" ${dis} value="${esc(p.location)}"></label>
         <label class="full">Examiner notes (internal)<textarea id="nt" ${dis}>${esc(content.notes)}</textarea></label></div>${editable ? '<button class="btn sm" id="sv">Save logistics</button>' : ''}</div>
         <div class="card"><h2>Versions</h2>${versions.length ? `<table class="t">${versions.map((v) => `<tr><td class="sm">Version ${v.version}</td><td class="mono xs">${esc(v.content_hash)}</td><td class="sm muted">${fmtDT(v.created_at)}</td></tr>`).join('')}</table>` : '<p class="sm muted">No finalized versions yet.</p>'}</div>
         <div class="card"><div class="card-head"><h2>Attached documents</h2>${can('org_admin', 'examiner') ? '<button class="btn sm" id="up">Upload</button>' : ''}</div><div id="docs"></div></div>`;
       renderDocs(qs('#docs', el), docs);
+      bindSetupKt(el);
       const up = qs('#up', el); if (up) up.onclick = () => uploadDoc({ applicant_id: p.applicant_id, poa_id: p.id }, () => route());
       const sv = qs('#sv', el); if (sv) sv.onclick = async () => { content.notes = qs('#nt', c).value; try { await act(sv, () => q(sb.from('poas').update({ title: qs('#ti', c).value.trim() || p.title, test_date: qs('#td', c).value || null, location: qs('#lo', c).value.trim() || null, content }).eq('id', p.id)), 'Saved'); p.title = qs('#ti', c).value.trim() || p.title; p.test_date = qs('#td', c).value || null; p.location = qs('#lo', c).value.trim() || null; } catch (_) {} };
+    }
+
+    // Appendix requirements tied to a task (for example two approaches on VI.A), shown under that task with the examiner's note.
+    function apxTaskHtml(key) {
+      const items = E.appendixFor(doc, { profile: p.test_profile, content, tasks }).items.filter((it) => (it.tasks || []).includes(key)); if (!items.length) return '';
+      const note = (content.appendix || {}).note || {};
+      return items.map((it) => `<div class="apx-task"><div class="xs"><span class="pill warn">Appendix requirement</span> <b>${esc(it.head)}</b></div>${it.text && it.text !== it.head ? `<div class="xs muted" style="margin:.2rem 0">${esc(it.text)}</div>` : ''}
+        <label class="xs" style="margin:.25rem 0 0">How this will be met<textarea data-apn="${esc(it.id)}" ${dis} style="min-height:40px" placeholder="How the applicant will meet this requirement on this test">${esc(note[it.id] || '')}</textarea></label></div>`).join('');
+    }
+    // Oral (ground) tasks get a task scenario; flight tasks list their skills. "both" counts as oral too.
+    const isOral = (k) => { const m = (content.tasks[k] || {}).method || 'oral'; return m === 'oral' || m === 'both'; };
+    // Applicant / checkride details and the knowledge test and AKTR codes this plan uses.
+    function setupKtCard() {
+      const ck = content.checkride || {}; const kl = content.ktests || []; const ak = content.aktr || [];
+      const rows = [['Applicant', app ? app.first_name + ' ' + app.last_name + (app.ftn ? ' · FTN ' + app.ftn : '') : '—'], ['Checkride', [ck.test_type, ck.scheduled_at ? fmtDT(ck.scheduled_at) : ''].filter(Boolean).join(' · ')], ['IACRA application', ck.iacra_app_id], ['Recommending instructor', [ck.recommending_instructor, ck.instructor_cert_number].filter(Boolean).join(' · ')], ['School', ck.school]];
+      return `<div class="card"><div class="card-head"><h2>Applicant, checkride and knowledge test</h2>${ck.id ? `<a class="btn ghost sm" href="#/applicant/${p.applicant_id}">Checkride record</a>` : ''}</div>
+        <table class="t">${rows.map(([k, v]) => `<tr><td class="sm muted" style="width:32%">${k}</td><td class="sm">${esc(v || '—')}</td></tr>`).join('')}
+        <tr><td class="sm muted">Knowledge test used</td><td class="sm">${kl.length ? kl.map((t) => `<b>${esc(E.ktCode(t))}</b> ${esc(E.KT_CATALOG[E.ktCode(t)] || '')}${t.date ? ' · ' + esc(fmtDate(t.date)) : ''}${t.score ? ' · ' + esc(t.score) + '%' : ''}`).join('<br>') : 'None recorded'}</td></tr></table>
+        <div class="sm strong" style="margin:.6rem 0 .25rem">AKTR codes to be tested (${ak.length})</div>
+        ${ak.length ? `<div class="chips">${ak.map((x) => `<span class="chip mono">${esc(x)}</span>`).join('')}</div>` : '<p class="sm muted">None. Elements are sampled normally.</p>'}
+        ${editable ? `<details style="margin-top:.5rem"><summary class="sm" style="cursor:pointer">Change AKTR codes</summary><textarea id="akEd" style="min-height:56px">${esc(ak.join(', '))}</textarea>
+          <div class="btn-row"><button class="btn sm" id="akApply">Apply codes</button>${ck.id ? '<button class="btn ghost sm" id="akReload">Reload from the checkride record</button>' : ''}</div>
+          <p class="xs muted">New codes are added to their tasks as elements to test. Removed codes are taken off their tasks along with their questions.</p></details>` : ''}</div>`;
+    }
+    function applyAktr(next, kts) {
+      next = Array.from(new Set(next.map((x) => String(x).trim().toUpperCase()).filter(Boolean)));
+      const prev = (content.aktr || []).map((x) => String(x).toUpperCase());
+      const added = next.filter((x) => !prev.includes(x)); const removed = prev.filter((x) => !next.includes(x)); const unknown = [];
+      added.forEach((code) => {
+        const t = tasks.find((tt) => E.elementCodes(doc, tt.area, tt.task).some((c2) => c2.toUpperCase() === code)); if (!t) { unknown.push(code); return; }
+        const real = E.elementCodes(doc, t.area, t.task).find((c2) => c2.toUpperCase() === code);
+        const ct = content.tasks[t.key] = content.tasks[t.key] || { included: true, elements: [], method: defaultMethod(t) }; ct.included = true; ct.elements = Array.from(new Set((ct.elements || []).concat(real)));
+      });
+      removed.forEach((code) => {
+        Object.values(content.tasks).forEach((ct) => { ct.elements = (ct.elements || []).filter((c2) => c2.toUpperCase() !== code); });
+        content.questions = (content.questions || []).filter((x) => String(x.ref || '').toUpperCase() !== code);
+      });
+      content.aktr = next.filter((x) => !unknown.includes(x)); if (kts) content.ktests = kts;
+      save(); render();
+      toast(`AKTR codes updated: ${added.length - unknown.length} added, ${removed.length} removed.` + (unknown.length ? ' Not in ' + doc.num + ': ' + unknown.join(', ') + '.' : ''), !!unknown.length);
+    }
+    function bindSetupKt(el) {
+      const ap = qs('#akApply', el); if (ap) ap.onclick = () => { const v = aktrList(qs('#akEd', el).value); const bad = v.filter((x) => !AKTR_RE.test(x)); if (bad.length) { toast('These do not look like ACS codes: ' + bad.join(', '), true); return; } applyAktr(v); };
+      const rl = qs('#akReload', el); if (rl) rl.onclick = async () => {
+        try {
+          const k = await q(sb.from('checkrides').select('knowledge_test').eq('id', content.checkride.id).single());
+          const kp = E.ktForPlan(p.test_profile, doc, E.ktTests(k.knowledge_test));
+          if (!(await confirmBox('Use the checkride knowledge test?', 'Tests used: ' + (kp.tests.map((t) => E.ktCode(t)).join(', ') || 'none') + '. AKTR codes: ' + (kp.aktr.join(', ') || 'none') + '.' + (kp.skipped.length ? ' Left out (other certificate level): ' + kp.skipped.join(', ') + '.' : ''), 'Use these'))) return;
+          applyAktr(kp.aktr, kp.tests.map((t) => ({ test: t.test, date: t.date, score: t.score, expires: t.expires || E.ktValidUntil(E.ktCode(t), t.date), aktr: t.aktr || [] })));
+        } catch (e) { toast(friendly(e), true); }
+      };
     }
 
     function paneTasks(el) {
@@ -676,6 +816,7 @@
               <div class="tt"><div class="strong sm">${esc(t.task.title)}</div><div class="xs muted">${t.required ? '<span class="pill accent">Required</span> ' : '<span class="pill">Optional</span> '}${esc(t.reason)}</div>
               ${t.task.notes.length ? `<div class="xs muted" style="margin-top:.25rem">Note: ${t.task.notes.map(esc).join(' ')}</div>` : ''}
               ${t.task.quick ? `<div class="xs" style="margin-top:.25rem"><span class="pill info">Examiner tolerance summary</span> ${esc(t.task.quick)}${t.task.quick_src === 'examiner' ? ' <span class="muted">(examiner practice; this task has no ACS numeric tolerance)</span>' : ''}</div>` : ''}${t.task.exnote ? `<div class="xs muted" style="margin-top:.25rem">Examiner note: ${esc(t.task.exnote)}</div>` : ''}
+              ${ct.included ? apxTaskHtml(t.key) : ''}
               ${t.required && !ct.included ? `<label class="xs" style="margin:.35rem 0 0">Reason for leaving out (shown on the proof form)<input class="exr" ${dis} value="${esc(ct.excludeReason)}"></label>` : ''}</div>
               <div class="seg" role="group" aria-label="Method">${['oral', 'flight', 'both'].map((m) => `<button type="button" data-m="${m}" class="${ct.method === m ? 'on' : ''}" ${dis}>${m === 'both' ? 'Both' : m === 'oral' ? 'Oral' : 'Flight'}</button>`).join('')}</div></div>
               <details class="els-d" ${ct.included ? '' : ''}><summary class="xs muted" style="margin:.35rem 0 0 3.8rem;cursor:pointer">${sel.size} of ${t.task.elements.length} elements selected</summary><div class="els">
@@ -683,6 +824,7 @@
               </div></details></div>`;
           }).join('')}</div></div>`;
         }).join('')}`;
+      qsa('[data-apn]', el).forEach((ta) => ta.oninput = () => { const ap = content.appendix = content.appendix || {}; ap.note = ap.note || {}; const v = ta.value; if (v.trim()) ap.note[ta.dataset.apn] = v; else delete ap.note[ta.dataset.apn]; save(); });
       qsa('.area-head', el).forEach((h) => h.onclick = () => { const b = h.nextElementSibling; b.style.display = b.style.display === 'none' ? '' : 'none'; });
       const rmo = qs('#rmOther', el); if (rmo) rmo.onclick = () => { const bad = new Set(otherCls.map((x) => x.ref)); otherCls.forEach((x) => { const ct = content.tasks[x.k]; ct.elements = (ct.elements || []).filter((r) => !bad.has(r)); if (ct.why) delete ct.why[x.ref]; });
         content.questions = (content.questions || []).filter((x) => !bad.has(x.ref)); save(); toast(bad.size + ' element(s) removed'); paneTasks(el); };
@@ -713,6 +855,8 @@
 
     const codeTag = (c) => (c && c.length ? ` <span class="mono xs muted">· ${esc(c.join(', '))}</span>` : '');
     function paneScenario(el) {
+      // Older plans may hold sub-scenarios; they are no longer used.
+      if (content.scenario && content.scenario.taskSubs && editable) { delete content.scenario.taskSubs; delete content.scenario.taskSubCodes; save(); }
       const sc = content.scenario = content.scenario || { triggers: [] };
       const missions = E.missionsFor(p.test_profile);
       const avail = E.triggersFor(tasks);
@@ -732,17 +876,16 @@
         <label>Constraints given to the applicant<textarea id="cons" ${dis} style="min-height:60px" placeholder="e.g. Must arrive before 1700; one passenger is nervous">${esc(sc.constraints)}</textarea></label></div>
         <div class="card"><h2>Scenario coverage</h2><div class="meter" aria-label="coverage"><i style="width:${pct}%"></i></div><p class="sm"><b>${cov.covered.length} of ${cov.total}</b> required tasks are evaluated through the planning phase and selected events (${pct}%). The managing specialist looks for a scenario that evaluates most tasks with minimum disruptions.</p>
         ${uncovered.length ? `<h3>Not yet covered by the scenario</h3><div class="xs">${uncovered.map((t) => `<label class="check" style="margin-bottom:.25rem"><input type="checkbox" class="xc" data-k="${t.key}" ${(sc.extraCovered || []).includes(t.key) ? 'checked' : ''} ${dis}><span><span class="mono">${t.key}</span> ${esc(t.task.title_plain)}</span></label>`).join('')}</div><p class="xs muted">Tick a task if your mission covers it in a way not listed in events (for example, a maneuver flown as part of the arrival).</p>` : '<div class="banner ok">Every required task is tied to the scenario.</div>'}</div></div>
-        ${(() => { const inc = tasks.filter((t) => content.tasks[t.key] && content.tasks[t.key].included); const ts = sc.taskScenarios || {}; const sub = sc.taskSubs || {}; const done = inc.filter((t) => (ts[t.key] || '').trim()).length;
-          if (!inc.length) return '';
+        ${(() => { const incAll = tasks.filter((t) => content.tasks[t.key] && content.tasks[t.key].included); const inc = incAll.filter((t) => isOral(t.key)); const nFl = incAll.length - inc.length; const ts = sc.taskScenarios || {}; const done = inc.filter((t) => (ts[t.key] || '').trim()).length;
+          if (!incAll.length) return '';
           const areas = []; inc.forEach((t) => { let g = areas.find((x) => x.r === t.area.roman); if (!g) areas.push(g = { r: t.area.roman, title: t.area.title, list: [] }); g.list.push(t); });
-          return `<div class="card" id="tsCard"><div class="card-head"><h2>Task scenarios</h2><span class="xs muted">${done} of ${inc.length} tasks have a scenario · printed with each task</span></div>
-          <p class="xs muted" style="margin-top:0">Each task scenario creates a reason the applicant must perform the task, and each sub-scenario changes one condition so a specific skill element has to be demonstrated. The element codes each one requires are shown beside it. ${sc.aiDraft ? 'AI drafts need examiner review.' : ''}</p>
+          return `<div class="card" id="tsCard"><div class="card-head"><h2>Task scenarios</h2><span class="xs muted">${done} of ${inc.length} oral tasks have a scenario · printed with each task</span></div>
+          <p class="xs muted" style="margin-top:0">Tasks evaluated on the ground (Oral) get one task scenario that the applicant works through with real materials. ${nFl ? nFl + ' flight task(s) need no task scenario; the plan lists their skills and the knowledge and risk questions. ' : ''}Change a task between Oral and Flight on Tasks &amp; elements. ${sc.aiDraft ? 'AI drafts need examiner review.' : ''}</p>
           ${editable && can('org_admin', 'examiner') ? `<div class="btn-row" style="margin-bottom:.5rem"><button type="button" class="btn ghost sm" id="aiTm">${done ? 'Draft missing tasks with AI' : 'Draft all task scenarios with AI'}</button>${done ? '<button type="button" class="btn ghost sm" id="aiTa">Redraft all with AI</button>' : ''}</div>` : ''}
           ${areas.map((g) => `<details class="ts-area" ${g.list.some((t) => !(ts[t.key] || '').trim()) || areas.length < 3 ? 'open' : ''}><summary class="sm strong">${esc(g.r)}. ${esc(g.title)} <span class="xs muted" style="font-weight:400">${g.list.filter((t) => (ts[t.key] || '').trim()).length}/${g.list.length}</span></summary>
             ${g.list.map((t) => `<div class="ts-task"><div class="sm"><span class="mono">${esc(t.key)}</span> ${esc(t.task.title_plain || t.task.title)} <span class="xs muted">${esc({ oral: 'Oral', flight: 'Flight', both: 'Oral and flight' }[content.tasks[t.key].method] || '')}</span></div>
               <label class="xs">Task scenario${codeTag((sc.taskCodes || {})[t.key])}<textarea class="tsc" data-k="${esc(t.key)}" ${dis} style="min-height:52px" placeholder="Scenario for this task">${esc(ts[t.key] || '')}</textarea></label>
-              ${(sub[t.key] || []).map((x, i) => `<div class="ts-sub"><label class="xs">Sub-scenario ${i + 1}${codeTag(((sc.taskSubCodes || {})[t.key] || [])[i])}<textarea class="tss" data-k="${esc(t.key)}" data-i="${i}" ${dis} style="min-height:44px">${esc(x)}</textarea></label>${editable ? `<button type="button" class="btn ghost sm tsr" data-k="${esc(t.key)}" data-i="${i}" aria-label="Remove sub-scenario">Remove</button>` : ''}</div>`).join('')}
-              ${editable ? `<button type="button" class="btn ghost sm tsa" data-k="${esc(t.key)}">Add sub-scenario</button>` : ''}</div>`).join('')}</details>`).join('')}
+</div>`).join('')}</details>`).join('')}
           ${editable && done ? '<button type="button" class="btn ghost sm" id="clrT" style="margin-top:.5rem">Remove all task scenarios</button>' : ''}</div>`; })()}
         <div class="card"><div class="card-head"><h2>Planned events (trigger events)</h2><span class="xs muted">${on.size} selected · events are hidden from the applicant packet</span></div>
         ${avail.map((tr) => { const sel = (sc.triggers || []).find((x) => x.id === tr.id); const covers = E.triggerCovers(tr, tasks); return `<div class="trig ${sel ? 'on' : ''}"><div class="trig-head"><input type="checkbox" class="tg" data-id="${tr.id}" ${sel ? 'checked' : ''} ${dis}><span class="phase">${esc(tr.phase)}</span><span class="strong sm" style="flex:1">${esc(tr.name)}</span><span class="xs mono muted">${covers.join(' ')}</span></div><div class="xs" style="margin:.3rem 0 0 1.6rem">${esc(sel && sel.text || tr.text)}</div>${sel ? `<label class="xs" style="margin:.4rem 0 0 1.6rem">Expected applicant response<input class="exp" data-id="${tr.id}" ${dis} value="${esc(sel.expected)}"></label>` : ''}</div>`; }).join('')}
@@ -759,7 +902,7 @@
         try { const r = await act(aiM, async () => A2().ai('master_scenario', await aiPayload())); sc.mission = r.text; sc.missionName = sc.missionName || 'Scenario'; sc.aiDraft = true; save(); paneScenario(el); toast('AI draft added. Review before use.'); } catch (_) {}
       };
       const TYPE_L = { K: 'K', R: 'R', S: 'S' };
-      const taskList = (onlyMissing) => tasks.filter((t) => content.tasks[t.key] && content.tasks[t.key].included && (!onlyMissing || !((sc.taskScenarios || {})[t.key] || '').trim())).map((t) => {
+      const taskList = (onlyMissing) => tasks.filter((t) => content.tasks[t.key] && content.tasks[t.key].included && isOral(t.key) && (!onlyMissing || !((sc.taskScenarios || {})[t.key] || '').trim())).map((t) => {
         const ct = content.tasks[t.key]; const codes = E.elementCodes(doc, t.area, t.task); const sel = new Set(ct.elements || []);
         // Every skill element (the scenario must make the applicant perform them) plus the selected knowledge and risk elements.
         const all = t.task.elements.map((e, i) => ({ e, c: codes[i] })).filter((x) => E.elementApplies(doc, t.task, x.e, p.test_profile.cls));
@@ -776,7 +919,7 @@
           let r = null; for (let a = 0; a < 2 && !r; a++) { try { r = await A2().ai('task_scenarios', { master: sc.mission, tasks: part }); } catch (er) { lastErr = er; } }
           if (!r) { fails++; continue; }
           sc.taskCodes = Object.assign({}, sc.taskCodes || {}); sc.taskSubCodes = Object.assign({}, sc.taskSubCodes || {});
-          (r.items || []).forEach((x) => { if (part.some((t) => t.key === x.key)) { const subs = (x.subs || []).map((y) => typeof y === 'string' ? { text: y, codes: [] } : y); sc.taskScenarios[x.key] = x.text; sc.taskCodes[x.key] = x.codes || []; sc.taskSubs[x.key] = subs.map((y) => y.text); sc.taskSubCodes[x.key] = subs.map((y) => y.codes || []); n++; } });
+          (r.items || []).forEach((x) => { if (part.some((t) => t.key === x.key)) { sc.taskScenarios[x.key] = x.text; sc.taskCodes[x.key] = x.codes || []; delete sc.taskSubs[x.key]; if (sc.taskSubCodes) delete sc.taskSubCodes[x.key]; n++; } });
           sc.aiDraft = true; save();
         }
         if (!n && lastErr) throw lastErr;
@@ -785,16 +928,13 @@
       };
       const runDraft = async (b, onlyMissing) => {
         if (!sc.mission || sc.mission.trim().length < 30) { toast('Write or draft the main scenario first.', true); return; }
-        if (!onlyMissing && !(await confirmBox('Redraft every task scenario?', 'All task scenarios and sub-scenarios are replaced with new AI drafts.', 'Redraft'))) return;
+        if (!onlyMissing && !(await confirmBox('Redraft every task scenario?', 'All oral task scenarios are replaced with new AI drafts.', 'Redraft'))) return;
         const list = taskList(onlyMissing); if (!list.length) { toast('Every included task already has a scenario.'); return; }
         const lbl = b.textContent;
         try { const n = await act(b, () => draftTasks(list, (i, tot) => { b.textContent = 'Drafting ' + Math.min(i + 6, tot) + ' of ' + tot + '…'; })); b.textContent = lbl; paneScenario(el); toast(n + ' task scenario(s) drafted. Review before use.'); } catch (_) { b.textContent = lbl; }
       };
       const aiTm = qs('#aiTm', el); if (aiTm) aiTm.onclick = () => runDraft(aiTm, true);
       const aiTa = qs('#aiTa', el); if (aiTa) aiTa.onclick = () => runDraft(aiTa, false);
-      qsa('.tss', el).forEach((t) => t.oninput = () => { const a = sc.taskSubs[t.dataset.k] || []; a[+t.dataset.i] = t.value; sc.taskSubs[t.dataset.k] = a; save(); });
-      qsa('.tsa', el).forEach((b) => b.onclick = () => { sc.taskSubs = sc.taskSubs || {}; (sc.taskSubs[b.dataset.k] = sc.taskSubs[b.dataset.k] || []).push(''); save(); paneScenario(el); });
-      qsa('.tsr', el).forEach((b) => b.onclick = () => { const a = (sc.taskSubs || {})[b.dataset.k] || []; a.splice(+b.dataset.i, 1); const ac = (sc.taskSubCodes || {})[b.dataset.k]; if (ac) ac.splice(+b.dataset.i, 1); save(); paneScenario(el); });
       qsa('.tsc', el).forEach((t) => t.oninput = () => { sc.taskScenarios = sc.taskScenarios || {}; sc.taskScenarios[t.dataset.k] = t.value; save(); });
       // Every plan gets an AI scenario: the first time the Scenario step opens with no scenario, draft the mission and
       // the task sub-scenarios with Grok. The examiner still reviews and edits before finalizing.
@@ -810,7 +950,7 @@
           } catch (er) { if (document.body.contains(box)) { box.className = 'banner warn'; box.textContent = 'AI scenario could not be drafted (' + (er && er.message ? er.message : 'error') + '). Use Draft scenario with AI to try again.'; } }
         })();
       }
-      const clrT = qs('#clrT', el); if (clrT) clrT.onclick = async () => { if (!(await confirmBox('Remove all task scenarios?', 'Every task scenario and sub-scenario is cleared. The main scenario stays.', 'Remove'))) return; delete sc.taskScenarios; delete sc.taskSubs; delete sc.taskCodes; delete sc.taskSubCodes; save(); paneScenario(el); };
+      const clrT = qs('#clrT', el); if (clrT) clrT.onclick = async () => { if (!(await confirmBox('Remove all task scenarios?', 'Every task scenario is cleared. The main scenario stays.', 'Remove'))) return; delete sc.taskScenarios; delete sc.taskSubs; delete sc.taskCodes; delete sc.taskSubCodes; save(); paneScenario(el); };
       qs('#tpl', el).onchange = (e) => { const m = missions[+e.target.value]; if (!m) return; sc.missionName = m.name; sc.mission = fill(m.text); save(); paneScenario(el); };
       qsa('.tg', el).forEach((cb) => cb.onchange = () => {
         const tr = E.TRIGGERS.find((x) => x.id === cb.dataset.id);
@@ -840,18 +980,23 @@
       const qsList = content.questions = content.questions || [];
       const isACS = doc.kind === 'ACS';
       const aktr = new Set((content.aktr || []).map((x) => String(x).toUpperCase()));
-      // Elements that get questions: every element marked for testing. On an ACS that is the selected knowledge and risk elements plus every applicable
-      // skill element; a skill question is asked right after the applicant demonstrates it in the task scenario. A parent with sub-elements is covered by its subs.
-      const rows = [];
+      // Elements that get questions: the selected knowledge and risk elements (AKTR codes included). Skill elements get no question;
+      // they are listed for demonstration. A parent with sub-elements is covered by its subs.
+      const rows = []; const skillRefs = new Set();
       tasks.forEach((t) => {
         const ct = content.tasks[t.key]; if (!ct || !ct.included) return;
         const codes = E.elementCodes(doc, t.area, t.task); const pick = new Set(ct.elements || []);
-        const list = t.task.elements.map((e, i) => ({ t, e, ref: codes[i] })).filter((x) => E.elementApplies(doc, t.task, x.e, p.test_profile.cls) && (!isACS ? pick.has(x.ref) : x.e.type === 'S' || ((x.e.type === 'K' || x.e.type === 'R') && pick.has(x.ref))));
+        const list = t.task.elements.map((e, i) => ({ t, e, ref: codes[i] })).filter((x) => E.elementApplies(doc, t.task, x.e, p.test_profile.cls) && (!isACS ? pick.has(x.ref) && x.e.type !== 'S' : (x.e.type === 'K' || x.e.type === 'R') && pick.has(x.ref)));
+        t.task.elements.forEach((e, i) => { if (e.type === 'S') skillRefs.add(codes[i]); });
         list.filter((x) => !(x.e.sub == null && list.some((y) => y.e.sub && y.e.type === x.e.type && y.e.num === x.e.num))).forEach((x) => rows.push(Object.assign(x, { aktr: aktr.has(String(x.ref).toUpperCase()) })));
       });
       const scn = content.scenario || {};
       // The scenario text where a skill element is demonstrated: the sub-scenario that lists it, else the task scenario.
-      const scenOf = (r) => { const subs = (scn.taskSubs || {})[r.t.key] || []; const sc2 = (scn.taskSubCodes || {})[r.t.key] || []; const i = sc2.findIndex((c) => (c || []).includes(r.ref)); return i >= 0 && subs[i] ? { label: 'Sub-scenario ' + (i + 1), text: subs[i] } : (scn.taskScenarios || {})[r.t.key] ? { label: 'Task scenario', text: scn.taskScenarios[r.t.key] } : null; };
+      // Skill elements are demonstrated, not questioned: drop any skill-element questions left from older plans.
+      const isSkillQ = (x) => x.ref && skillRefs.has(x.ref) && !rows.some((r) => r.ref === x.ref);
+      if (editable && qsList.some(isSkillQ)) { const keep = qsList.filter((x) => !isSkillQ(x)); qsList.length = 0; keep.forEach((x) => qsList.push(x)); save(); }
+      // Oral tasks: questions are set inside the task scenario.
+      const scenOf = (r) => isOral(r.t.key) && (scn.taskScenarios || {})[r.t.key] ? { label: 'Task scenario', text: scn.taskScenarios[r.t.key] } : null;
       const rowOf = new Map(rows.map((r) => [r.ref, r]));
       // Older plans stored questions without a slot number; give the first two on each element slots 1 and 2.
       const seen = {}; qsList.forEach((x) => { if (!x.seq && x.ref && rowOf.has(x.ref)) { seen[x.ref] = (seen[x.ref] || 0) + 1; x.seq = seen[x.ref]; } });
@@ -882,7 +1027,7 @@
         const want = gapsOf(); let n = 0; const banked = [];
         for (let i = 0; i < want.length; i += 20) {
           if (!live()) break; const part = want.slice(i, i + 20); if (progress) progress(Math.min(i + 20, want.length), want.length);
-          let r = null; for (let a = 0; a < 2 && !r; a++) { try { r = await A2().ai('questions', { difficulty: sp.difficulty || '', elements: part.map((g) => ({ code: g.r.ref, task: g.r.t.key, type: g.r.aktr ? 'A' : g.r.e.type, text: g.r.e.text, references: g.r.t.task.references || '', mode: g.m, scenario: g.r.e.type === 'S' && scenOf(g.r) ? scenOf(g.r).text : undefined, firstQuestion: g.first ? g.first.prompt : undefined, firstExpected: g.first ? g.first.expected : undefined })) }); } catch (er) { if (a) throw er; } }
+          let r = null; for (let a = 0; a < 2 && !r; a++) { try { r = await A2().ai('questions', { difficulty: sp.difficulty || '', elements: part.map((g) => ({ code: g.r.ref, task: g.r.t.key, type: g.r.aktr ? 'A' : g.r.e.type, text: g.r.e.text, references: g.r.t.task.references || '', mode: g.m, scenario: scenOf(g.r) ? scenOf(g.r).text : undefined, firstQuestion: g.first ? g.first.prompt : undefined, firstExpected: g.first ? g.first.expected : undefined })) }); } catch (er) { if (a) throw er; } }
           const out = (r && r.items) || [];
           part.forEach((g, k) => {
             const same = (o) => o && !o._u && String(o.code || '').trim().toUpperCase() === String(g.r.ref).toUpperCase();
@@ -918,10 +1063,10 @@
       const body = rows.map((r) => {
         const n = cnt(r.ref); const head = r.t.key !== lastTask ? `<tr class="q-task"><td colspan="3" class="sm strong"><span class="mono">${esc(r.t.key)}</span> ${esc(r.t.task.title_plain || r.t.task.title)}</td></tr>` : ''; lastTask = r.t.key;
         return `${head}<tr><td class="mono xs" style="width:8.5rem">${esc(r.ref)}<div><span class="pill ${r.e.type === 'R' ? 'warn' : 'info'}">${esc(TL[r.e.type] || r.e.type || '')}</span>${r.aktr ? ' <span class="pill bad" title="Missed on the knowledge test">AKTR</span>' : ''}</div></td>
-          <td><div class="sm" style="margin-bottom:.3rem">${esc(r.e.text)}</div>${r.e.type === 'S' ? (scenOf(r) ? `<div class="xs muted" style="margin-bottom:.3rem"><b>Asked after ${esc(scenOf(r).label.toLowerCase())}:</b> ${esc(scenOf(r).text.slice(0, 220))}${scenOf(r).text.length > 220 ? '…' : ''}</div>` : '<div class="xs muted" style="margin-bottom:.3rem">Asked after the applicant performs this skill. Draft task scenarios first so the question can refer to them.</div>') : ''}${n ? [1, 2].filter((s2) => s2 <= n).map((s2) => slotHtml(r, s2)).join('') : '<div class="xs muted">Not questioned on this plan.</div>'}</td>
+          <td><div class="sm" style="margin-bottom:.3rem">${esc(r.e.text)}</div>${n ? [1, 2].filter((s2) => s2 <= n).map((s2) => slotHtml(r, s2)).join('') : '<div class="xs muted">Not questioned on this plan.</div>'}</td>
           <td style="width:7.5rem">${editable ? `<select class="qn" data-ref="${esc(r.ref)}" aria-label="Questions for ${esc(r.ref)}" style="margin:0">${[0, 1, 2].map((v) => `<option value="${v}" ${n === v ? 'selected' : ''}>${v}</option>`).join('')}</select>${(bankBy[r.ref] || []).length > (slot(r.ref, 1) && slot(r.ref, 1).bankId ? 1 : 0) && n ? `<button type="button" class="btn ghost sm qr" data-ref="${esc(r.ref)}" style="margin-top:.3rem">Random</button>` : ''}` : n}</td></tr>`;
       }).join('');
-      el.innerHTML = `<div class="banner info">Every element marked for testing gets its own question and expected answer. Skill elements are demonstrated in the task scenarios and sub-scenarios, then followed by a question about what the applicant just did. Choose 1 or 2 per element (the second goes one step deeper on the first), or set any element to 0. Approved bank questions are picked at random first; AI writes what the bank is missing.</div>
+      el.innerHTML = `<div class="banner info">Every knowledge and risk element marked for testing gets its own question and expected answer, including AKTR codes. Skill elements are not questioned; they are listed on the plan for the applicant to demonstrate. Choose 1 or 2 per element (the second goes one step deeper on the first), or set any element to 0. Approved bank questions are picked at random first; AI writes what the bank is missing.</div>
         ${autoRun ? '<div class="banner warn" id="qAuto">Writing missing questions with AI…</div>' : gaps.length ? `<div class="banner warn">${gaps.length} element(s) still need a question or follow-up.</div>` : rows.length ? '<div class="banner ok">Every selected element has its questions.</div>' : '<div class="banner warn">No elements are selected. Select them on Tasks and elements.</div>'}
         ${editable ? `<div class="btn-row" style="margin-bottom:.8rem;align-items:flex-end;flex-wrap:wrap"><label class="xs" style="margin:0">Questions per element<select id="qMode" style="margin:.15rem 0 0;min-width:13rem"><option value="1" ${mode === '1' ? 'selected' : ''}>1</option><option value="2" ${mode === '2' ? 'selected' : ''}>2 (question and follow-up)</option><option value="random" ${mode === 'random' ? 'selected' : ''}>Random (1 or 2)</option></select></label>
           <button class="btn" id="qApply">Apply to all</button><button class="btn ghost" id="qShuffle">Random pick from bank</button>${canAI && gaps.length && !autoRun ? `<button class="btn ghost" id="aiQ">Write ${gaps.length} missing with AI</button>` : ''}${qsList.length ? '<button class="btn danger sm" id="clr">Clear all</button>' : ''}</div>` : ''}
@@ -988,6 +1133,8 @@
       const cr = qs('[data-crew]', el); if (cr) cr.onchange = () => { eg.crew = cr.value; save(); paneReview(el); render2(); };
       const ap = content.appendix = content.appendix || {}; ap.flags = ap.flags || {}; ap.ack = ap.ack || {};
       qsa('[data-apf]', el).forEach((cb) => cb.onchange = () => { ap.flags[cb.dataset.apf] = cb.checked; save(); paneReview(el); render2(); });
+      ap.note = ap.note || {};
+      qsa('[data-apn]', el).forEach((ta) => ta.oninput = () => { const v = ta.value; if (v.trim()) ap.note[ta.dataset.apn] = v; else delete ap.note[ta.dataset.apn]; save(); });
       qsa('[data-apk]', el).forEach((cb) => cb.onchange = () => { if (cb.checked) ap.ack[cb.dataset.apk] = true; else delete ap.ack[cb.dataset.apk]; save(); paneReview(el); render2(); });
       const aa = qs('#apAll', el); if (aa) aa.onclick = () => { E.appendixFor(doc, { profile: p.test_profile, content, tasks }).items.forEach((it) => { ap.ack[it.id] = true; }); save(); paneReview(el); render2(); };
     }
@@ -1000,6 +1147,7 @@
       const list = Object.keys(groups).map((g) => `<h3 class="sm strong" style="margin:.7rem 0 .3rem">${esc(g)}</h3>` + groups[g].map((it) => {
         const t = it.text || ''; const lbl = it.kind === 'list' || (it.when || {}).kind === 'list' ? 'Applicant checklist: ' : '';
         return `<div class="apx-item"><label class="check sm"><input type="checkbox" data-apk="${esc(it.id)}" ${ax.ack[it.id] ? 'checked' : ''} ${dis}><span><strong>${esc(lbl + it.head)}</strong>${it.tasks ? ' <span class="pill">' + esc(it.tasks.join(', ')) + '</span>' : ''}</span></label>
+          ${it.tasks ? `<label class="xs apx-note">How this will be met (printed with task ${esc(it.tasks.join(', '))})<textarea data-apn="${esc(it.id)}" ${dis} style="min-height:44px" placeholder="For example: applicant flies the RNAV (GPS) 10 at KVRB and the VOR 22 at KFPR">${esc(((content.appendix || {}).note || {})[it.id] || '')}</textarea></label>` : ''}
           ${t && t !== it.head ? `<details class="apx-text"><summary class="xs muted">${esc(t.length > 140 ? t.slice(0, 140).replace(/\s+\S*$/, '') + '…' : t)}</summary><p class="xs">${esc(t)}</p><p class="xs muted">${esc(doc.num)}, ${esc(g)}</p></details>` : ''}</div>`;
       }).join('')).join('');
       return `<div class="card apx-card"><h2>Appendix requirements (${esc(doc.num)})</h2>
@@ -1013,7 +1161,7 @@
   }
 
   // expose for other modules
-  Object.assign(window.SPOA, { fetchAll, esc, qs, qsa, fmtDate, fmtDT, today, uid, rpc, q, act, busy, toast, friendly, go, org, roles, can, isOwner, shell, head, modal, confirmBox, loadStd, loadDocsDb, stdDoc, bindRows, statusPill, outcomePill, renderDocs, uploadDoc, ROLE_LABEL, ROLE_DESC, noOrg, AKTR_RE, aktrList, route });
+  Object.assign(window.SPOA, { ktEditor, fetchAll, esc, qs, qsa, fmtDate, fmtDT, today, uid, rpc, q, act, busy, toast, friendly, go, org, roles, can, isOwner, shell, head, modal, confirmBox, loadStd, loadDocsDb, stdDoc, bindRows, statusPill, outcomePill, renderDocs, uploadDoc, ROLE_LABEL, ROLE_DESC, noOrg, AKTR_RE, aktrList, route });
 
   // ---------- router ----------
   const ROUTES = [];
@@ -1030,7 +1178,7 @@
       if (!S.std) loadStd();
       if (!S.docsDb) loadDocsDb();
       const table = [
-        [/^\/(home|login)?$/, () => viewHome()], [/^\/applicants$/, () => viewApplicants()], [/^\/applicant\/([\w-]+)$/, (x) => viewApplicant(x[1])], [/^\/aircraft$/, () => viewAircraft()],
+        [/^\/(home|login)?$/, () => viewHome()], [/^\/applicants$/, () => viewApplicants()], [/^\/applicant\/([\w-]+)$/, (x) => viewApplicant(x[1], params)], [/^\/aircraft$/, () => viewAircraft()],
         [/^\/poas$/, () => viewPoas()], [/^\/poa\/new$/, () => viewPoaNew(params)], [/^\/poa\/([\w-]+)$/, (x) => viewPoa(x[1], params)],
       ];
       for (const [re, fn] of table) { if ((m = path.match(re))) return await fn(m); }

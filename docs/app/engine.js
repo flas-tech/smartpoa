@@ -98,6 +98,24 @@
       default: return { tests: [] };
     }
   }
+  // Knowledge tests that belong to each certificate level. Used to keep a private pilot test (PAR) out of an instrument plan.
+  const KT_FOR_CERT = { private: ['PAR', 'PAT', 'PRH', 'PHT', 'PCP', 'PFB'], commercial: ['CAX', 'CRH', 'CCP', 'MCN'], instrument: ['IRA', 'IRH', 'IFP', 'IFB', 'ICP'],
+    atp: ['ATM', 'ATS', 'ATH', 'ARH'], cfi: ['FOI', 'FIA', 'AFA', 'FRH', 'HFA', 'MCI'], cfii: ['FII', 'AIF', 'FIH', 'HIF', 'FOI'] };
+  // The tests and AKTR codes a plan should use: tests for this certificate level, and only codes written against this standard.
+  function ktForPlan(profile, doc, tests) {
+    const ok = KT_FOR_CERT[(profile || {}).cert] || [];
+    const use = (tests || []).filter((t) => ok.includes(ktCode(t)));
+    const pre = doc ? docPrefix(doc) : '';
+    const all = Array.from(new Set([].concat(...use.map((t) => t.aktr || [])).map((x) => String(x).trim().toUpperCase()).filter(Boolean)));
+    const aktr = pre ? all.filter((x) => x.startsWith(pre + '.')) : all;
+    const skipped = (tests || []).filter((t) => !use.includes(t)).map((t) => ktCode(t)).filter(Boolean);
+    return { tests: use, aktr, dropped: all.filter((x) => !aktr.includes(x)), skipped, prefix: pre };
+  }
+  function docPrefix(doc) {
+    if (doc.kind !== 'ACS') return '';
+    for (const a of doc.areas || []) for (const t of a.tasks || []) { const c = elementCodes(doc, a, t)[0]; if (c) return String(c).split('.')[0].toUpperCase(); }
+    return '';
+  }
   function ktCheck(exp, tests, testDate) {
     const on = (tests || []).map((t) => Object.assign({}, t, { code: ktCode(t), until: t.expires || ktValidUntil(ktCode(t), t.date) }));
     const day = testDate || new Date().toISOString().slice(0, 10);
@@ -467,9 +485,11 @@
     push('scenario', 'o895d_ms_ii', 'FAA Order 8000.95E', null, !hasMission ? 'gap' : pct >= 50 ? 'met' : 'review',
       hasMission ? 'Scenario with ' + ((content.scenario.triggers || []).length) + ' planned event(s) covers ' + cov.covered.length + ' of ' + cov.total + ' required tasks (' + pct + '%).' : 'No scenario written yet.');
     const qs = content.questions || [];
-    const tsc = Object.values((content.scenario || {}).taskScenarios || {}).filter((x) => String(x || '').trim()).length;
+    const tsMap = (content.scenario || {}).taskScenarios || {};
+    const oralKeys = Object.keys(content.tasks || {}).filter((k) => content.tasks[k].included && ['oral', 'both'].includes(content.tasks[k].method || 'oral'));
+    const tsc = oralKeys.filter((k) => String(tsMap[k] || '').trim()).length;
     const scen = tsc + qs.filter((q) => q.portion === 'scenario').length;
-    push('sbt', 'o895d_pm_c', 'FAA Order 8000.95E', null, qs.length && scen ? 'met' : 'review', qs.length + ' planned question(s) with expected answers; ' + tsc + ' task scenario(s) for the applicant to demonstrate.');
+    push('sbt', 'o895d_pm_c', 'FAA Order 8000.95E', null, qs.length && scen ? 'met' : 'review', qs.length + ' planned question(s) with expected answers; ' + tsc + ' of ' + oralKeys.length + ' oral task(s) have a task scenario.');
     const apx = appendixFor(doc, ctx);
     if (apx.items.length) {
       const open = apx.items.filter((it) => !apx.ack[it.id]);
@@ -570,6 +590,6 @@
     ].join('\n'),
   };
 
-  root.SPE = { AP_FLAGS, appendixFor, KT_CATALOG, ktTests, ktCode, ktValidUntil, ktExpected, ktCheck, ruleSet, elementClasses, elementApplies, CLASS_LABEL, CERT_LABEL, PURPOSE_LABEL, HELD_OPTIONS, resolveStandard, requiredTasks, selectElements, elementCodes, taskKey,
+  root.SPE = { KT_FOR_CERT, ktForPlan, docPrefix, AP_FLAGS, appendixFor, KT_CATALOG, ktTests, ktCode, ktValidUntil, ktExpected, ktCheck, ruleSet, elementClasses, elementApplies, CLASS_LABEL, CERT_LABEL, PURPOSE_LABEL, HELD_OPTIONS, resolveStandard, requiredTasks, selectElements, elementCodes, taskKey,
     missionsFor, scenarioProfile, cfiMatrix, TRIGGERS, triggersFor, triggerCovers, scenarioCoverage, questionFor, complianceChecks, DEFAULT_BRIEFINGS, categoryOfClass, similarity };
 })(typeof window !== 'undefined' ? window : globalThis);

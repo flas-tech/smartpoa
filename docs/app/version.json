@@ -1,6 +1,70 @@
 {
-  "version": "0.2.7",
+  "version": "0.2.8",
   "releases": [
+    {
+      "version": "0.2.8",
+      "date": "2026-11-18",
+      "title": "Applicant and checkride records, oral-only scenarios and checkride-order plans",
+      "items": [
+        {
+          "text": "Adding an applicant is now two steps: the applicant's details (including FTN), then a checkride with its date, test type, knowledge test and AKTR codes, IACRA application ID, instructor and school. The plan of action is built from the checkride.",
+          "roles": [
+            "org_admin",
+            "examiner",
+            "office"
+          ]
+        },
+        {
+          "text": "Knowledge test results and AKTR codes are entered per checkride, and a plan only uses the codes from that checkride's test.",
+          "roles": [
+            "org_admin",
+            "examiner",
+            "office"
+          ]
+        },
+        {
+          "text": "Organization admins can delete a checkride (optionally with its plan) or an applicant and all of their records.",
+          "roles": [
+            "org_admin"
+          ]
+        },
+        {
+          "text": "The Setup step shows the applicant, checkride details, the knowledge test used and the AKTR codes, which you can change or reload from the checkride.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        },
+        {
+          "text": "Only Oral tasks get a task scenario, one per task with no sub-scenarios. Flight tasks list their knowledge and risk questions and every skill to demonstrate.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        },
+        {
+          "text": "Skill elements no longer get questions.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        },
+        {
+          "text": "Appendix requirements tied to a task, such as the two non-precision approaches on VI.A, now appear under that task with a note box for how they will be met, on the plan, the printout and the test-day view.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        },
+        {
+          "text": "The printed plan and the test-day view follow the checkride order: applicant and test information, pretest briefing, ground portion, preflight briefing, flight portion, postflight debriefing and closeout.",
+          "roles": [
+            "org_admin",
+            "examiner"
+          ]
+        }
+      ]
+    },
     {
       "version": "0.2.7",
       "date": "2026-11-17",

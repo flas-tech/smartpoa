@@ -39,7 +39,7 @@
     <div><b>Aircraft</b>${esc(x.ac ? x.ac.tail + ' — ' + x.ac.make_model : '—')}</div>
     <div><b>Examiner</b>${esc(x.ex.full_name || x.ex.email || '')}${x.ex.examiner_info && x.ex.examiner_info.kind ? ' · ' + esc(x.ex.examiner_info.kind) : ''}</div>
     <div><b>Location</b>${esc(x.p.location || '—')}</div>
-    <div><b>Recommending instructor</b>${esc(x.app && x.app.recommending_instructor || '—')}</div></div>`;
+    <div><b>Recommending instructor</b>${esc((x.p.content.checkride || {}).recommending_instructor || (x.app && x.app.recommending_instructor) || '—')}</div></div>`;
   const foot = (x, extra) => `<div class="foot">${extra || ''}Plan fingerprint (SHA-256): <span style="font-family:var(--mono)">${esc(x.p.content_hash || 'not finalized')}</span><br>Standard file fingerprint: <span style="font-family:var(--mono)">${esc(x.p.standard_sha256 || '')}</span><br>Printed ${esc(fmtDT(new Date().toISOString()))}. ${esc(DISCLAIMER)}</div>`;
   const nl = (s) => esc(s || '').replace(/\n/g, '<br>');
   const included = (x) => x.tasks.filter((t) => x.p.content.tasks[t.key] && x.p.content.tasks[t.key].included);
@@ -47,23 +47,48 @@
   const elText = (x, t) => { const codes = E.elementCodes(x.doc, t.area, t.task); const sel = new Set(x.p.content.tasks[t.key].elements || []); return t.task.elements.map((e, i) => sel.has(codes[i]) ? { code: codes[i], e } : null).filter(Boolean); };
 
   const qLine = (z) => `<div style="margin:.1em 0 .15em ${z.seq === 2 ? '2.2em' : '1em'};font-size:8.5pt">${z.seq === 2 ? '<b>Follow-up:</b> ' : '<b>Q:</b> '}${esc(z.prompt)}${z.expected ? `<div style="font-size:8pt;margin-left:.8em;color:#333">Expected: ${esc(z.expected)}</div>` : ''}</div>`;
+  const isOralM = (m) => (m || 'oral') === 'oral' || m === 'both';
+  // Applicable skill elements for a task (all of them are listed; skills get no question).
+  const skillsOf = (x, t) => { const codes = E.elementCodes(x.doc, t.area, t.task); return t.task.elements.map((e, i) => ({ code: codes[i], e })).filter((y) => y.e.type === 'S' && E.elementApplies(x.doc, t.task, y.e, x.p.test_profile.cls)).filter((y, _, all) => !(y.e.sub == null && all.some((z) => z.e.sub && z.e.num === y.e.num))); };
+  const apxTask = (x, key) => { const ax = E.appendixFor(x.doc, { profile: x.p.test_profile, content: x.p.content || {}, tasks: x.tasks }); const note = ((x.p.content || {}).appendix || {}).note || {};
+    return ax.items.filter((it) => (it.tasks || []).includes(key)).map((it) => `<div style="margin:.2em 0 .3em;padding:.25em .4em;border:1px solid #999;font-size:8.5pt"><b>Appendix requirement:</b> ${esc(it.head)}${it.text && it.text !== it.head ? `<div style="font-size:8pt;color:#333">${esc(it.text)}</div>` : ''}<div><b>How this will be met:</b> ${note[it.id] ? nl(note[it.id]) : '<span style="display:inline-block;min-width:60%;border-bottom:1px solid #777">&nbsp;</span>'}</div></div>`).join(''); };
+  // One table of tasks for a portion of the test. Ground: task scenario, K/R questions, skills. Flight: K/R questions and the list of skills, no scenario.
+  function portionTable(x, list, portion, qsByTask) {
+    const c = x.p.content; const sc = c.scenario || {};
+    return byArea(list).map(({ area, list: l }) => `<h3>${esc(area.roman)}. ${esc(area.title)}</h3><table><thead><tr><th style="width:4%"></th><th style="width:15%">Task</th><th>${portion === 'ground' ? 'Scenario, questions and skills' : 'Questions and skills'}</th></tr></thead><tbody>${l.map((t) => {
+      const ct = c.tasks[t.key]; const els = elText(x, t).filter((y) => y.e.type !== 'S'); const qq = qsByTask[t.key] || []; const sk = skillsOf(x, t);
+      const askHere = portion === 'ground' || ct.method === 'flight'; const tsc = portion === 'ground' ? (sc.taskScenarios || {})[t.key] : '';
+      const qBlock = askHere ? els.map((y) => `<div><span style="font-family:var(--mono);font-size:8pt">${esc(y.code)}</span> ${esc(y.e.text)}</div>${qq.filter((z) => z.ref === y.code).sort((a, b) => (a.seq || 9) - (b.seq || 9)).map(qLine).join('')}`).join('')
+        + (qq.filter((z) => !els.some((y) => y.code === z.ref) && !sk.some((y) => y.code === z.ref)).length ? `<div style="margin-top:.3em;border-top:1px dotted #999;padding-top:.2em">${qq.filter((z) => !els.some((y) => y.code === z.ref) && !sk.some((y) => y.code === z.ref)).map(qLine).join('')}</div>` : '')
+        : (els.length ? '<div style="font-size:8pt;color:#444">Knowledge and risk questions are asked in the ground portion.</div>' : '');
+      const skBlock = sk.length ? `<div style="margin-top:.25em"><b style="font-size:8.5pt">Skills to demonstrate</b>${sk.map((y) => `<div style="font-size:8.5pt"><span style="font-family:var(--mono);font-size:8pt">${esc(y.code)}</span> ${esc(y.e.text)}</div>`).join('')}</div>` : '';
+      return `<tr class="avoid"><td><span class="box"></span></td><td><b style="font-family:var(--mono)">${esc(t.key)}</b><br>${esc(t.task.title_plain || t.task.title)}${t.task.quick ? `<div style="font-size:8pt;margin-top:.2em">Std: ${esc(t.task.quick)}</div>` : ''}<div style="font-size:8pt;margin-top:.2em">${esc({ oral: 'Oral', flight: 'Flight', both: 'Oral and flight' }[ct.method] || 'Oral')}</div></td>
+        <td>${tsc ? `<div style="margin-bottom:.3em"><b>Task scenario:</b> ${esc(tsc)}</div>` : ''}${apxTask(x, t.key)}${qBlock}${skBlock}</td></tr>`; }).join('')}</tbody></table>`).join('');
+  }
   async function printPoa(m) {
     const box = shell('poas'); const x = await load(m[1]); if (!box.isConnected) return; const c = x.p.content; const sc = c.scenario || {};
     const qsByTask = {}; (c.questions || []).forEach((qq) => { (qsByTask[qq.task || '_'] = qsByTask[qq.task || '_'] || []).push(qq); });
+    const inc = included(x); const ground = inc.filter((t) => isOralM(c.tasks[t.key].method)); const flight = inc.filter((t) => (c.tasks[t.key].method || 'oral') !== 'oral');
+    const b = c.briefings || {}; const kr = x.doc.kind === 'ACS' ? ' K = knowledge, R = risk management, S = skill.' : '';
     frame(box, 'Plan of action', '#/poa/' + x.p.id, `<div class="doc">${docHead('Plan of action', x)}${meta(x)}
       ${x.p.status === 'draft' ? '<p style="color:#a11c2d;font-weight:700">DRAFT — not finalized.</p>' : ''}
+      <h2>1. Applicant and test information</h2>
       ${testDetails(x)}
-      <h2>Pretest briefing</h2><p>${nl(c.briefings && c.briefings.pretest)}</p>
-      <h2>Scenario</h2><p><b>${esc(sc.missionName || 'Mission')}</b>${sc.dep || sc.dest ? ' — ' + esc([sc.dep, sc.dest].filter(Boolean).join(' to ')) + (sc.alt ? ', alternate ' + esc(sc.alt) : '') : ''}</p><p>${nl(sc.mission)}</p>
-      ${sc.route || sc.pax || sc.weather || sc.constraints ? `<table><tbody>${[['Route / altitude', sc.route], ['Passengers & cargo', sc.pax], ['Weather', sc.weather], ['Constraints', sc.constraints]].filter((r) => r[1]).map((r) => `<tr><th style="width:24%">${r[0]}</th><td>${nl(r[1])}</td></tr>`).join('')}</tbody></table>` : ''}
-      ${(sc.triggers || []).length ? `<h3>Planned events (examiner only)</h3><table><thead><tr><th>Phase</th><th>Event</th><th>Expected response</th><th>Tasks</th></tr></thead><tbody>${sc.triggers.map((t) => `<tr class="avoid"><td>${esc(t.phase)}</td><td><b>${esc(t.name)}</b><br>${esc(t.text)}</td><td>${esc(t.expected || '')}</td><td style="font-family:var(--mono);font-size:8pt">${esc((t.covers || []).join(' '))}</td></tr>`).join('')}</tbody></table>` : ''}
       ${apxPrint(x)}
-      <h2>Preflight briefing</h2><p>${nl(c.briefings && c.briefings.preflight)}</p>
-      <h2 class="pb">Tasks and elements</h2><p class="xs">Tasks from ${esc(x.doc.num)}. ${x.doc.kind === 'ACS' ? 'K = knowledge, R = risk management, S = skill.' : ''} Method: O = oral, F = flight, B = both.</p>
-      ${byArea(included(x)).map(({ area, list }) => `<h3>${esc(area.roman)}. ${esc(area.title)}</h3><table><thead><tr><th style="width:12%">Task</th><th>Elements to evaluate</th><th style="width:5%">M</th></tr></thead><tbody>${list.map((t) => { const ct = c.tasks[t.key]; const els = elText(x, t); const qq = qsByTask[t.key] || []; const tsc = (sc.taskScenarios || {})[t.key]; return `<tr class="avoid"><td><b style="font-family:var(--mono)">${esc(t.key)}</b><br>${esc(t.task.title_plain || t.task.title)}${t.task.quick ? `<div style="font-size:8pt;margin-top:.2em">Std: ${esc(t.task.quick)}</div>` : ''}</td><td>${tsc ? `<div style="margin-bottom:.25em"><b>Scenario:</b> ${esc(tsc)}${((sc.taskSubs || {})[t.key] || []).filter((z) => String(z).trim()).map((z, i) => `<div style="margin:.15em 0 0 .8em;font-size:8.5pt"><b>${String.fromCharCode(97 + i)}.</b> ${esc(z)}</div>`).join('')}</div>` : ''}${els.map((y) => `<div><span style="font-family:var(--mono);font-size:8pt">${esc(y.code)}</span> ${esc(y.e.text)}</div>${qq.filter((z) => z.ref === y.code).sort((a, b) => (a.seq || 9) - (b.seq || 9)).map(qLine).join('')}`).join('')}${qq.filter((z) => !els.some((y) => y.code === z.ref)).length ? `<div style="margin-top:.3em;border-top:1px dotted #999;padding-top:.2em">${qq.filter((z) => !els.some((y) => y.code === z.ref)).map(qLine).join('')}</div>` : ''}</td><td>${esc({ oral: 'O', flight: 'F', both: 'B' }[ct.method] || '')}</td></tr>`; }).join('')}</tbody></table>`).join('')}
+      <h2>2. Pretest briefing</h2><p>${nl(b.pretest)}</p>
+      <h2 class="pb">3. Ground portion</h2><p class="xs">Tasks marked Oral, from ${esc(x.doc.num)}.${kr} Each task has one scenario the applicant works through.</p>
+      <h3>Scenario</h3><p><b>${esc(sc.missionName || 'Mission')}</b>${sc.dep || sc.dest ? ' — ' + esc([sc.dep, sc.dest].filter(Boolean).join(' to ')) + (sc.alt ? ', alternate ' + esc(sc.alt) : '') : ''}</p><p>${nl(sc.mission)}</p>
+      ${sc.route || sc.pax || sc.weather || sc.constraints ? `<table><tbody>${[['Route / altitude', sc.route], ['Passengers & cargo', sc.pax], ['Weather', sc.weather], ['Constraints', sc.constraints]].filter((r) => r[1]).map((r) => `<tr><th style="width:24%">${r[0]}</th><td>${nl(r[1])}</td></tr>`).join('')}</tbody></table>` : ''}
+      ${ground.length ? portionTable(x, ground, 'ground', qsByTask) : '<p>No tasks are marked Oral.</p>'}
       ${(qsByTask._ || []).length ? `<h3>Other questions</h3>${qsByTask._.map((z) => `<div>• ${esc(z.prompt)}</div>`).join('')}` : ''}
+      <h2 class="pb">4. Preflight briefing</h2><p>${nl(b.preflight)}</p>
+      ${(sc.triggers || []).length ? `<h3>Planned events (examiner only)</h3><table><thead><tr><th>Phase</th><th>Event</th><th>Expected response</th><th>Tasks</th></tr></thead><tbody>${sc.triggers.map((t) => `<tr class="avoid"><td>${esc(t.phase)}</td><td><b>${esc(t.name)}</b><br>${esc(t.text)}</td><td>${esc(t.expected || '')}</td><td style="font-family:var(--mono);font-size:8pt">${esc((t.covers || []).join(' '))}</td></tr>`).join('')}</tbody></table>` : ''}
+      <h2>5. Flight portion</h2><p class="xs">Tasks marked Flight or Oral and flight. Flight tasks have no task scenario; they list the knowledge and risk questions and every skill to demonstrate.</p>
+      ${flight.length ? portionTable(x, flight, 'flight', qsByTask) : '<p>No tasks are marked Flight.</p>'}
       ${flightChecklist(x)}
-      <h2>Postflight debriefing</h2><p>${nl(c.briefings && c.briefings.postflight)}</p>
+      <h2 class="pb">6. Postflight debriefing and closeout</h2><p>${nl(b.postflight)}</p>
+      <table class="avoid"><tbody><tr><th style="width:28%">Result</th><td><span class="box"></span> Approved (temporary certificate issued) &nbsp; <span class="box"></span> Disapproved (notice of disapproval) &nbsp; <span class="box"></span> Discontinued (letter of discontinuance)</td></tr>
+      <tr><th>Tasks not completed or unsatisfactory</th><td style="height:2.4em"></td></tr><tr><th>IACRA application completed and signed</th><td><span class="box"></span></td></tr><tr><th>Applicant records and documents returned</th><td><span class="box"></span></td></tr></tbody></table>
       <div class="sig"><div>Examiner signature / date</div><div>Applicant acknowledgment of briefing / date</div></div>${foot(x)}</div>`);
   }
   // Header block and flight-portion checklist carried over from the JPJ plan of action.
@@ -71,16 +96,16 @@
     const ax = E.appendixFor(x.doc, { profile: x.p.test_profile, content: x.p.content || {}, tasks: x.tasks });
     if (!ax.items.length) return '';
     const cond = ax.flags.filter((f) => ax.values[f]).map((f) => esc(E.AP_FLAGS[f]));
-    return `<h2>Appendix requirements (${esc(x.doc.num)})</h2>${cond.length ? `<p class="small">Conditions: ${cond.join('; ')}.</p>` : ''}
+    return `<h3>Appendix requirements (${esc(x.doc.num)})</h3>${cond.length ? `<p class="small">Conditions: ${cond.join('; ')}.</p>` : ''}
       <table><thead><tr><th style="width:5%"></th><th style="width:28%">Requirement</th><th>Text from the standard</th></tr></thead><tbody>${ax.items.map((it) => `<tr><td><span class="box" style="text-align:center;font-size:11px;line-height:11px">${ax.ack[it.id] ? '&#10003;' : ''}</span></td><td><b>${esc(it.head)}</b><br><span class="small">${esc(it.group)}${it.tasks ? ' · ' + esc(it.tasks.join(', ')) : ''}</span></td><td class="small">${esc(it.text || '')}</td></tr>`).join('')}</tbody></table>`;
   }
   function testDetails(x) {
-    const a = x.app || {}; const cr = x.p.content.checkride || {}; const kt = a.knowledge_test || {};
-    const rows = [['Certificate no. (last 4)', a.cert_number_last4], ['FTN', a.ftn], ['Preapproval no.', cr.preapproval_number], ['Flight school', a.school],
-      ['Recommending instructor', [a.recommending_instructor, a.instructor_cert_number ? 'cert. ' + a.instructor_cert_number : ''].filter(Boolean).join(', ')],
+    const a = x.app || {}; const cr = x.p.content.checkride || {};
+    const rows = [['Certificate no. (last 4)', a.cert_number_last4], ['FTN', a.ftn], ['Preapproval no.', cr.preapproval_number], ['IACRA application ID', cr.iacra_app_id], ['Flight school', cr.school || a.school],
+      ['Recommending instructor', [cr.recommending_instructor || a.recommending_instructor, (cr.instructor_cert_number || a.instructor_cert_number) ? 'cert. ' + (cr.instructor_cert_number || a.instructor_cert_number) : ''].filter(Boolean).join(', ')],
       ['Checkride date / time', cr.scheduled_at ? fmtDT(cr.scheduled_at) : fmtDate(x.p.test_date)], ['Departure airport', (x.p.content.scenario || {}).dep || x.p.location],
       ['Type of practical test', cr.test_type || E.PURPOSE_LABEL[x.p.purpose]], ['Applied for on basis of', cr.basis], ['ACS / PTS version', x.doc.num + ' (' + x.doc.edition_date + ')'],
-      ['Aircraft make and model', x.ac ? x.ac.make_model : cr.aircraft], ['Knowledge tests', (x.p.content.ktests || E.ktTests(kt)).map((t) => [E.ktCode(t), t.date ? 'taken ' + fmtDate(t.date) : '', t.score ? t.score + '%' : ''].filter(Boolean).join(' ')).join('; ') || 'None recorded'], ['AKTR incorrect answers', (x.p.content.aktr || kt.aktr || []).join(', ') || 'None recorded'], ['Evaluator notes', cr.notes]];
+      ['Aircraft make and model', x.ac ? x.ac.make_model : cr.aircraft], ['Knowledge tests', (x.p.content.ktests || []).map((t) => [E.ktCode(t), t.date ? 'taken ' + fmtDate(t.date) : '', t.score ? t.score + '%' : ''].filter(Boolean).join(' ')).join('; ') || 'None recorded'], ['AKTR incorrect answers', (x.p.content.aktr || []).join(', ') || 'None recorded'], ['Evaluator notes', cr.notes]];
     return `<table class="avoid"><tbody>${rows.map(([k, v]) => `<tr><th style="width:28%">${k}</th><td>${esc(v || '—')}</td></tr>`).join('')}</tbody></table>`;
   }
   function flightChecklist(x) {

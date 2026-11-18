@@ -51,7 +51,7 @@
     const c = shell('schedule'); if (!org()) return noOrg(c);
     const [rows, apps] = await Promise.all([
       q(sb.from('checkrides').select('*').eq('org_id', S.orgId).order('scheduled_at', { ascending: true })),
-      q(sb.from('applicants').select('id,first_name,last_name,school,recommending_instructor,ftn').eq('org_id', S.orgId).order('last_name')),
+      q(sb.from('applicants').select('*').eq('org_id', S.orgId).order('last_name')),
     ]);
     const AP = Object.fromEntries(apps.map((a) => [a.id, a]));
     const canEdit = can('org_admin', 'examiner', 'office');
@@ -82,7 +82,7 @@
         return true;
       });
       if (!st.future) list.reverse();
-      qs('#tb tbody', c).innerHTML = list.length ? list.map((r) => { const a = AP[r.applicant_id]; return `<tr class="click" data-id="${r.id}"><td class="sm">${esc(fmtDT(r.scheduled_at) || 'Not scheduled')}</td><td><span class="strong sm">${esc(name(a))}</span><div class="xs muted">${esc(a && a.school || '')}</div></td><td class="sm">${esc(GRADES[r.grade_sought] || '—')} ${esc(r.class || '')}</td><td class="sm">${esc(r.test_type)}</td><td class="sm mono">${esc(r.departure_airport || '')}</td><td class="sm">${esc(r.aircraft_make_model || '')}<div class="xs muted">${esc(r.tail_number || '')}</div></td><td>${resultPill(r.result)}${r.poa_id ? ' <span class="pill accent">POA</span>' : ''}</td></tr>`; }).join('')
+      qs('#tb tbody', c).innerHTML = list.length ? list.map((r) => { const a = AP[r.applicant_id]; return `<tr class="click" data-id="${r.id}"><td class="sm">${esc(fmtDT(r.scheduled_at) || 'Not scheduled')}</td><td><span class="strong sm">${esc(name(a))}</span><div class="xs muted">${esc(r.school || '')}</div></td><td class="sm">${esc(GRADES[r.grade_sought] || '—')} ${esc(r.class || '')}</td><td class="sm">${esc(r.test_type)}</td><td class="sm mono">${esc(r.departure_airport || '')}</td><td class="sm">${esc(r.aircraft_make_model || '')}<div class="xs muted">${esc(r.tail_number || '')}</div></td><td>${resultPill(r.result)}${r.poa_id ? ' <span class="pill accent">POA</span>' : ''}</td></tr>`; }).join('')
         : `<tr><td colspan="7"><div class="empty"><span class="strong">No checkrides match</span>${st.future ? 'Untick "Future only" to see past checkrides.' : ''}</div></td></tr>`;
       qsa('tr[data-id]', c).forEach((tr) => tr.onclick = () => checkrideForm(rows.find((r) => r.id === tr.dataset.id), apps, () => viewSchedule(m, params)));
     };
@@ -102,7 +102,7 @@
     const dt = cr.scheduled_at ? new Date(cr.scheduled_at) : null;
     const local = dt ? new Date(dt.getTime() - dt.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
     modal(`<h2>${isNew ? 'Schedule checkride' : 'Checkride record'}</h2><div id="err"></div><form id="f"><div class="form-grid">
-      <div class="full" id="flg"></div><label class="full">Applicant<select name="applicant_id" ${dis}><option value="">Select…</option>${apps.map((a) => `<option value="${a.id}" ${a.id === cr.applicant_id ? 'selected' : ''}>${esc(name(a))}${a.school ? ' — ' + esc(a.school) : ''}</option>`).join('')}</select></label>
+      <div class="full" id="flg"></div><label class="full">Applicant<select name="applicant_id" ${dis}><option value="">Select…</option>${apps.map((a) => `<option value="${a.id}" ${a.id === cr.applicant_id ? 'selected' : ''}>${esc(name(a))}${a.ftn ? ' — FTN ' + esc(a.ftn) : ''}</option>`).join('')}</select></label>
       <label>Date and time<input type="datetime-local" name="scheduled_at" value="${esc(local)}" ${dis}></label>
       <label>Departure airport<input name="departure_airport" maxlength="5" value="${esc(cr.departure_airport)}" placeholder="KPBI" ${dis}></label>
       <label>Type of practical test<select name="test_type" ${dis}>${TEST_TYPES.map((t) => `<option ${t === (cr.test_type || 'Original Certificate') ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
@@ -112,6 +112,11 @@
       <label>Aircraft make and model<input name="aircraft_make_model" value="${esc(cr.aircraft_make_model)}" placeholder="Cessna 172S" ${dis}></label>
       <label>Tail number<input name="tail_number" value="${esc(cr.tail_number)}" maxlength="8" ${dis}></label>
       <label>Preapproval number<input name="preapproval_number" value="${esc(cr.preapproval_number)}" ${dis}></label>
+      <label>IACRA application ID<input name="iacra_app_id" value="${esc(cr.iacra_app_id)}" ${dis}></label>
+      <label>School / flight department<input name="school" value="${esc(cr.school)}" ${dis}></label>
+      <label>Recommending instructor<input name="recommending_instructor" value="${esc(cr.recommending_instructor)}" ${dis}></label>
+      <label>Instructor certificate number<input name="instructor_cert_number" maxlength="20" value="${esc(cr.instructor_cert_number)}" ${dis}></label>
+      <div class="full" id="ktWrap"></div><p class="full xs muted" id="ktPre" style="display:none;margin-top:-.4rem"></p>
       <div class="full"><h3>Outcome</h3></div>
       <label>Result<select name="result" ${dis}><option value="">Not yet recorded</option>${Object.entries(RESULTS).map(([k, v]) => `<option value="${k}" ${k === cr.result ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
       <div class="form-grid" style="gap:.6rem"><label>Ground time (h)<input name="ground_time" inputmode="decimal" value="${esc(hrs(cr.ground_time))}" ${dis}></label><label>Flight time (h)<input name="flight_time" inputmode="decimal" value="${esc(hrs(cr.flight_time))}" ${dis}></label></div>
@@ -122,13 +127,27 @@
         <div class="btn-row"><button type="button" class="btn ghost" data-close>${canEdit ? 'Cancel' : 'Close'}</button>${canEdit ? '<button class="btn" type="submit">Save</button>' : ''}</div></div></form>`,
     (bg, close) => {
       const f = qs('#f', bg);
+      const kte = A.ktEditor(qs('#ktWrap', bg), E.ktTests(cr.knowledge_test));
+      if (!canEdit) qsa('#ktWrap input, #ktWrap textarea, #ktWrap button', bg).forEach((x) => { x.disabled = true; });
+      // New checkride: offer details still on the older applicant record, filtered to tests for the grade sought.
+      const prefill = () => {
+        if (!isNew) return; const ap = apps.find((x) => x.id === f.applicant_id.value); if (!ap) return;
+        ['school', 'recommending_instructor', 'instructor_cert_number', 'iacra_app_id'].forEach((k) => { if (!f[k].value && ap[k]) f[k].value = ap[k]; });
+        const old = E.ktTests(ap.knowledge_test); const ok = E.KT_FOR_CERT[f.grade_sought.value] || [];
+        const use = old.filter((t) => ok.includes(E.ktCode(t)));
+        if (use.length && kte.isEmpty()) { kte.set(use); const el = qs('#ktPre', bg); el.style.display = ''; el.textContent = 'Filled in from the earlier applicant record: ' + use.map((t) => E.ktCode(t)).join(', ') + '. Check before saving.'; }
+      };
+      f.applicant_id.addEventListener('change', prefill); f.grade_sought.addEventListener('change', prefill); prefill();
       if (!isNew) { A.bindFlagButtons(bg); A.flagsFor(cr.id).then((fl) => { const el = qs('#flg', bg); if (el && fl.length) el.innerHTML = `<div class="banner warn sm"><b>Flagged in Data Review:</b> ${fl.map((x) => esc(x.title)).join('; ')}</div>`; }); }
       const read = () => {
         const num = (v) => { v = String(v).trim(); if (!v) return null; const n = +v; return Number.isFinite(n) && n >= 0 && n < 24 ? Math.round(n * 10) / 10 : NaN; };
         const row = { applicant_id: f.applicant_id.value || null, scheduled_at: f.scheduled_at.value ? new Date(f.scheduled_at.value).toISOString() : null, departure_airport: f.departure_airport.value.trim().toUpperCase() || null,
           test_type: f.test_type.value, grade_sought: f.grade_sought.value || null, class: f.class.value || null, basis: f.basis.value || null, aircraft_make_model: f.aircraft_make_model.value.trim() || null,
           tail_number: f.tail_number.value.trim().toUpperCase() || null, preapproval_number: f.preapproval_number.value.trim() || null, result: f.result.value || null,
-          ground_time: num(f.ground_time.value), flight_time: num(f.flight_time.value), notes: f.notes.value.trim() || null };
+          ground_time: num(f.ground_time.value), flight_time: num(f.flight_time.value), notes: f.notes.value.trim() || null,
+          iacra_app_id: f.iacra_app_id.value.trim() || null, school: f.school.value.trim() || null, recommending_instructor: f.recommending_instructor.value.trim() || null, instructor_cert_number: f.instructor_cert_number.value.trim() || null };
+        const kt = kte.read(); if (kt.error) { qs('#err', bg).innerHTML = `<div class="err">${esc(kt.error)}</div>`; return null; }
+        row.knowledge_test = { tests: kt.tests, aktr: kt.aktr };
         if (Number.isNaN(row.ground_time) || Number.isNaN(row.flight_time)) { qs('#err', bg).innerHTML = '<div class="err">Ground and flight time must be hours between 0 and 24, for example 1.5.</div>'; return null; }
         return row;
       };
@@ -141,11 +160,23 @@
       });
       const dup = qs('#dup', bg); if (dup) dup.onclick = async () => {
         const row = read(); if (!row) return;
-        Object.assign(row, { test_type: RETEST_OF[row.test_type] || row.test_type, result: null, ground_time: null, flight_time: null, scheduled_at: null, notes: null, preapproval_number: null });
+        Object.assign(row, { test_type: RETEST_OF[row.test_type] || row.test_type, result: null, ground_time: null, flight_time: null, scheduled_at: null, notes: null, preapproval_number: null, iacra_app_id: null });
         try { await act(dup, () => q(sb.from('checkrides').insert(Object.assign(row, { org_id: S.orgId, created_by: S.ctx.user_id })).select('id').single()), 'Retest record created; set the date'); close(); done && done(); } catch (_) {}
       };
       const pb = qs('#poa', bg); if (pb) pb.onclick = () => { close(); go('#/poa/new?checkride=' + cr.id); };
-      const del = qs('#del', bg); if (del) del.onclick = async () => { if (!(await confirmBox('Delete checkride record?', 'The record is removed; the audit trail keeps a record of the deletion.', 'Delete'))) return; try { await act(del, () => q(sb.from('checkrides').delete().eq('id', cr.id)), 'Deleted'); close(); done && done(); } catch (_) {} };
+      const del = qs('#del', bg); if (del) del.onclick = () => { close(); deleteCheckride(cr, null, done); };
+    });
+  }
+
+  // Delete a checkride; when it has a plan of action the admin chooses whether the plan (and its result) goes too.
+  async function deleteCheckride(cr, plans, done) {
+    let pl = cr.poa_id ? (plans && plans[cr.poa_id]) : null;
+    if (cr.poa_id && !pl) { try { pl = await q(sb.from('poas').select('id,title,status').eq('id', cr.poa_id).maybeSingle()); } catch (_) {} }
+    modal(`<h2>Delete checkride?</h2><p class="sm">${esc([cr.test_type, GRADES[cr.grade_sought], cr.class, cr.scheduled_at ? fmtDT(cr.scheduled_at) : ''].filter(Boolean).join(' · '))}</p>
+      ${pl ? `<label class="check sm"><input type="checkbox" id="wp"> Also delete its plan of action "${esc(pl.title)}" (${esc(pl.status)}) and any recorded result</label>` : ''}
+      <p class="xs muted">This cannot be undone. The audit log keeps a record of the deletion.</p>
+      <div class="btn-row" style="justify-content:flex-end"><button class="btn ghost" data-close>Cancel</button><button class="btn danger" id="ok">Delete</button></div>`, (bg, close) => {
+      qs('#ok', bg).onclick = async () => { const wp = qs('#wp', bg); try { await act(qs('#ok', bg), () => A.rpc('delete_checkride', { p_id: cr.id, p_with_plan: !!(wp && wp.checked) }), 'Deleted'); close(); done && done(); } catch (_) {} };
     });
   }
 
@@ -253,7 +284,7 @@
     render();
   }
 
-  Object.assign(A, { ai, orgSettings, loadBriefReq, briefReqFor, CR: { TEST_TYPES, RESULTS, GRADES, PURPOSE_OF, resultPill } });
+  Object.assign(A, { ai, orgSettings, loadBriefReq, briefReqFor, CR: { TEST_TYPES, RESULTS, GRADES, PURPOSE_OF, resultPill, checkrideForm, deleteCheckride } });
 
   // ---------- past checkrides (examiner history) ----------
   async function viewPastCheckrides(m, params) {
@@ -261,7 +292,7 @@
     if (!can('org_admin', 'examiner', 'auditor')) { c.innerHTML = '<div class="banner warn">Past checkrides are available to examiners, administrators and auditors.</div>'; return; }
     const [all, apps] = await Promise.all([
       q(sb.from('checkrides').select('*').eq('org_id', S.orgId).order('scheduled_at', { ascending: false })),
-      q(sb.from('applicants').select('id,first_name,last_name,school,recommending_instructor,ftn').eq('org_id', S.orgId).order('last_name')),
+      q(sb.from('applicants').select('*').eq('org_id', S.orgId).order('last_name')),
     ]);
     const AP = Object.fromEntries(apps.map((a) => [a.id, a]));
     const nowIso = new Date().toISOString();
