@@ -240,28 +240,54 @@
     if (!can('org_admin')) { c.innerHTML = '<div class="banner warn">Organization settings are managed by organization administrators.</div>'; return; }
     const [O, st] = await Promise.all([loadOpts(), orgSettings()]);
     const prof = st.scenario_profiles || {}; const sty = st.ai_style || {}; const br = st.briefings || {};
-    let grade = 'private'; await loadBriefReq(); const rq = { g: params && params.get('g') || 'atp', t: params && params.get('t') || 'Original Certificate' };
+    let grade = 'private'; await loadBriefReq(); const rq = { g: params && params.get('g') || 'private', t: params && params.get('t') || 'Original Certificate' };
     const sel = (opts, v, nm, allowFree) => { const list = (opts || []).slice(); if (v && !list.includes(v)) list.unshift(v); return `<select name="${nm}"><option value="">${allowFree ? 'None' : 'Select…'}</option>${list.map((o) => `<option ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`; };
+    const TABS = [['drafting', 'Scenarios and AI'], ['checklists', 'Pre-test checklists'], ['briefings', 'Briefing scripts']];
+    let tab = params && (params.get('g') || params.get('t')) ? 'checklists' : (params && params.get('tab')) || 'drafting';
+    let brk = 'pretest';
+    const BRIEFS = [['pretest', 'Pretest', 'Pretest briefing'], ['preflight', 'Preflight', 'Preflight briefing'], ['postflight', 'Postflight', 'Postflight debriefing']];
+    const nSet = (o) => Object.keys(o || {}).filter((k) => k !== 'temperature').length;
     const render = () => {
       const p = prof[grade] || {};
-      c.innerHTML = head('Organization settings', 'Scenario profiles and AI drafting style used when examiners draft scenarios and questions, and the default briefing scripts for new plans of action.') +
-        `<div class="card"><div class="card-head"><h2>Scenario profile by grade</h2><select id="g" style="max-width:240px;margin:0">${Object.entries(GRADES).map(([k, v]) => `<option value="${k}" ${k === grade ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
-        <form id="pf"><div class="form-grid">${PROFILE_FIELDS.map(([k, l, o]) => `<label class="${k === 'difficulty' ? 'full' : ''}">${l}${sel(O[o], p[k], k, true)}</label>`).join('')}
-        <label>Planned arrival airport<input name="arrival" maxlength="5" value="${esc(p.arrival)}" placeholder="KBNA"></label></div>
-        <div class="btn-row" style="justify-content:flex-end"><button class="btn">Save profile</button></div></form></div>
-        <div class="card"><h2>AI drafting style</h2><p class="xs muted">Applies to AI drafts of scenarios and questions. Drafts are sent to xAI (Grok) with standards text, airports and aircraft model only; no applicant information is sent. Every draft needs examiner review.</p>
-        <form id="sf"><div class="form-grid3">${STYLE_FIELDS.map(([k, l, o]) => `<label>${l}${sel(O[o], sty[k], k)}</label>`).join('')}<label>Creativity (temperature)${sel(O.temperature, sty.temperatureLabel, 'temperature')}</label></div>
-        <div class="btn-row" style="justify-content:flex-end"><button class="btn">Save style</button></div></form></div>
-        <div class="card" id="breq"><div class="card-head"><h2>Pre-test checklists</h2><span class="xs muted">Endorsements and aeronautical experience shown on the plan review and printed plan</span></div>
-        <form id="rf"><div class="form-grid"><label>Grade<select name="g">${Object.entries(GRADES).map(([k, v]) => `<option value="${k}" ${k === rq.g ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
-        <label>Type of practical test<select name="t">${TEST_TYPES.map((t) => `<option ${t === rq.t ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label></div>
-        ${(() => { const cur = briefReqFor(rq.g, rq.t); const exact = cur && cur.test_type === rq.t; return `<p class="xs ${exact ? 'muted' : ''}">${!cur ? '<span class="pill warn">No checklist</span> None exists for this test yet.' : exact ? (cur.org ? 'Organization checklist.' : 'Imported checklist. Saving creates an organization copy.') : '<span class="pill warn">No checklist</span> This test currently falls back to the ' + esc(cur.test_type) + ' list.'} One item per line; start a line with "- " for a sub-item. Leave both boxes empty and save to return to the imported list.</p>
-        <div class="form-grid"><label>Endorsements required<textarea name="e" style="min-height:180px">${esc(exact ? cur.endorsements.join('\n') : '')}</textarea></label><label>Aeronautical experience required<textarea name="x" style="min-height:180px">${esc(exact ? cur.experience.join('\n') : '')}</textarea></label></div>`; })()}
-        <div id="aiCk"></div><div class="btn-row" style="justify-content:flex-end"><button type="button" class="btn ghost" id="aiDraft">Draft with AI</button><button class="btn" id="ckSave">Save checklist</button></div></form></div>
-        <div class="card"><h2>Default briefing scripts</h2><p class="xs muted">New plans of action start with these scripts. Leave a box empty to use the smartPOA default. {std} is replaced by the standard number.</p>
-        <form id="bf">${[['pretest', 'Pretest briefing'], ['preflight', 'Preflight briefing'], ['postflight', 'Postflight debriefing']].map(([k, l]) => `<label>${l}<textarea name="${k}" style="min-height:160px" placeholder="${esc(E.DEFAULT_BRIEFINGS[k].slice(0, 140))}…">${esc(br[k] || '')}</textarea></label>`).join('')}
-        <div class="btn-row" style="justify-content:flex-end"><button class="btn">Save briefings</button></div></form></div>`;
-      qs('#g', c).onchange = (e) => { grade = e.target.value; render(); };
+      const body = tab === 'drafting' ? `<div class="card"><form id="pf">
+          <div class="card-head" style="align-items:flex-end"><div><h2>Scenario profile</h2><p class="xs muted" style="margin:.15rem 0 0">Optional. Fields left on "None" are chosen by the AI draft.</p></div>
+          <label style="margin:0;min-width:240px">Grade<select id="g" style="margin:.2rem 0 0">${Object.entries(GRADES).map(([k, v]) => `<option value="${k}" ${k === grade ? 'selected' : ''}>${v}${nSet(prof[k]) ? ' (customized)' : ''}</option>`).join('')}</select></label></div>
+          <div class="form-grid">${PROFILE_FIELDS.map(([k, l, o]) => `<label>${l}${sel(O[o], p[k], k, true)}</label>`).join('')}
+          <label>Planned arrival airport<input name="arrival" maxlength="5" value="${esc(p.arrival)}" placeholder="e.g. KBNA"></label></div>
+          <details class="os-more" ${nSet(sty) ? 'open' : ''}><summary class="sm strong">Writing style (all grades)${nSet(sty) ? ` <span class="pill ok">${nSet(sty)} set</span>` : ''}</summary>
+          <div class="form-grid3" style="margin-top:.5rem">${STYLE_FIELDS.map(([k, l, o]) => `<label>${l}${sel(O[o], sty[k], k, true)}</label>`).join('')}<label>Creativity${sel(O.temperature, sty.temperatureLabel, 'temperature', true)}</label></div></details>
+          <p class="xs muted">AI drafts go to xAI (Grok) with standards text, airports and aircraft model only. No applicant information is sent. Examiners review every draft.</p>
+          <div class="btn-row" style="justify-content:flex-end"><button class="btn">Save</button></div></form></div>`
+        : tab === 'checklists' ? `<div class="card" id="breq"><h2>Pre-test checklists</h2><p class="xs muted" style="margin-top:0">Endorsements and aeronautical experience shown on the plan review and the printed plan.</p>
+          <form id="rf"><div class="form-grid"><label>Grade<select name="g">${Object.entries(GRADES).map(([k, v]) => `<option value="${k}" ${k === rq.g ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+          <label>Type of practical test<select name="t">${TEST_TYPES.map((t) => `<option ${t === rq.t ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label></div>
+          ${(() => { const cur = briefReqFor(rq.g, rq.t); const exact = cur && cur.test_type === rq.t; return `<p class="sm">${!cur ? '<span class="pill warn">None yet</span> No checklist exists for this test.' : exact ? (cur.org ? '<span class="pill ok">Organization list</span>' : '<span class="pill">Imported list</span> Saving makes an organization copy.') : '<span class="pill warn">None yet</span> This test uses the ' + esc(cur.test_type) + ' list.'}</p>
+          <div class="form-grid"><label>Endorsements required<textarea name="e" style="min-height:180px" placeholder="One item per line. Start a line with - for a sub-item.">${esc(exact ? cur.endorsements.join('\n') : '')}</textarea></label><label>Aeronautical experience required<textarea name="x" style="min-height:180px" placeholder="One item per line. Start a line with - for a sub-item.">${esc(exact ? cur.experience.join('\n') : '')}</textarea></label></div>
+          <p class="xs muted">To go back to the imported list, clear both boxes and save.</p>`; })()}
+          <div id="aiCk"></div><div class="btn-row" style="justify-content:flex-end"><button type="button" class="btn ghost" id="aiDraft">Draft with AI</button><button class="btn" id="ckSave">Save checklist</button></div></form></div>`
+        : (() => { const custom = !!(br[brk] || '').trim(); const B = BRIEFS.find((x) => x[0] === brk); return `<div class="card"><div class="card-head"><h2>Briefing scripts</h2><div class="seg" role="group" aria-label="Script">${BRIEFS.map(([k, l]) => `<button type="button" data-b="${k}" class="${k === brk ? 'on' : ''}">${l}${(br[k] || '').trim() ? ' (custom)' : ''}</button>`).join('')}</div></div>
+          <p class="xs muted" style="margin-top:0">New plans of action start with these scripts. {std} is replaced by the standard number.</p>
+          <form id="bf"><p class="sm">${custom ? '<span class="pill ok">Customized</span>' : '<span class="pill">smartPOA default</span> Edit and save to customize it.'}</p>
+          <label>${B[2]}<textarea name="txt" style="min-height:340px">${esc(custom ? br[brk] : E.DEFAULT_BRIEFINGS[brk])}</textarea></label>
+          <div class="btn-row" style="justify-content:flex-end">${custom ? '<button type="button" class="btn ghost" id="bReset">Reset to default</button>' : ''}<button class="btn">Save</button></div></form></div>`; })();
+      c.innerHTML = head('Organization settings', 'Defaults used when examiners build a plan of action.') +
+        `<div class="os-tabs" role="tablist">${TABS.map(([k, l]) => `<button type="button" role="tab" aria-selected="${k === tab}" class="${k === tab ? 'on' : ''}" data-tab="${k}">${l}</button>`).join('')}</div>${body}`;
+      qsa('[data-tab]', c).forEach((t) => t.onclick = () => { tab = t.dataset.tab; render(); });
+      const saveSt = async (b) => { await act(b, () => q(sb.from('orgs').update({ settings: st }).eq('id', S.orgId).select('id').single()), 'Saved'); };
+      if (tab === 'drafting') {
+        qs('#g', c).onchange = (e) => { grade = e.target.value; render(); };
+        qs('#pf', c).onsubmit = async (e) => { e.preventDefault(); const f = e.target; const v = {}; PROFILE_FIELDS.forEach(([k]) => { if (f[k].value) v[k] = f[k].value; }); if (f.arrival.value.trim()) v.arrival = f.arrival.value.trim().toUpperCase(); prof[grade] = v; st.scenario_profiles = prof;
+          const w = {}; STYLE_FIELDS.forEach(([k]) => { if (f[k].value) w[k] = f[k].value; }); if (f.temperature.value) { w.temperatureLabel = f.temperature.value; w.temperature = parseFloat(f.temperature.value); } Object.keys(sty).forEach((k) => delete sty[k]); Object.assign(sty, w); st.ai_style = sty;
+          try { await saveSt(qs('.btn-row .btn', f)); render(); } catch (_) {} };
+        return;
+      }
+      if (tab === 'briefings') {
+        qsa('[data-b]', c).forEach((b) => b.onclick = () => { brk = b.dataset.b; render(); });
+        const bf = qs('#bf', c);
+        bf.onsubmit = async (e) => { e.preventDefault(); const t = bf.txt.value; if (t.trim() && t.trim() !== E.DEFAULT_BRIEFINGS[brk].trim()) br[brk] = t; else delete br[brk]; st.briefings = br; try { await saveSt(qs('.btn-row .btn:not(.ghost)', bf)); render(); } catch (_) {} };
+        const rs = qs('#bReset', c); if (rs) rs.onclick = async () => { if (!(await A.confirmBox('Reset to the default script?', 'New plans will use the smartPOA default. Existing plans keep their own text.', 'Reset'))) return; delete br[brk]; st.briefings = br; try { await saveSt(rs); render(); } catch (_) {} };
+        return;
+      }
       const rf = qs('#rf', c); rf.g.onchange = rf.t.onchange = () => { rq.g = rf.g.value; rq.t = rf.t.value; render(); qs('#breq', c).scrollIntoView(); };
       qs('#aiDraft', c).onclick = async (e) => {
         if ((rf.e.value.trim() || rf.x.value.trim()) && !(await A.confirmBox('Replace the current text?', 'The endorsements and experience boxes will be replaced with an AI draft. Nothing is saved until you press Save checklist.', 'Replace'))) return;
@@ -276,10 +302,6 @@
         const v = { endorsements: lines(rf.e.value), experience: lines(rf.x.value) }; const all = Object.assign({}, st.brief_req || {});
         if (v.endorsements.length || v.experience.length) all[rq.g + '|' + rq.t] = v; else delete all[rq.g + '|' + rq.t];
         st.brief_req = all; try { await saveSt(qs('#ckSave', rf)); ORGBR = all; render(); qs('#breq', c).scrollIntoView(); } catch (_) {} };
-      const saveSt = async (b) => { await act(b, () => q(sb.from('orgs').update({ settings: st }).eq('id', S.orgId).select('id').single()), 'Saved'); };
-      qs('#pf', c).onsubmit = async (e) => { e.preventDefault(); const f = e.target; const v = {}; PROFILE_FIELDS.forEach(([k]) => { if (f[k].value) v[k] = f[k].value; }); if (f.arrival.value.trim()) v.arrival = f.arrival.value.trim().toUpperCase(); prof[grade] = v; st.scenario_profiles = prof; try { await saveSt(qs('button', f)); } catch (_) {} };
-      qs('#sf', c).onsubmit = async (e) => { e.preventDefault(); const f = e.target; const v = {}; STYLE_FIELDS.forEach(([k]) => { if (f[k].value) v[k] = f[k].value; }); if (f.temperature.value) { v.temperatureLabel = f.temperature.value; v.temperature = parseFloat(f.temperature.value); } st.ai_style = v; try { await saveSt(qs('button', f)); } catch (_) {} };
-      qs('#bf', c).onsubmit = async (e) => { e.preventDefault(); const f = e.target; const v = {}; ['pretest', 'preflight', 'postflight'].forEach((k) => { if (f[k].value.trim()) v[k] = f[k].value; }); st.briefings = v; try { await saveSt(qs('button', f)); } catch (_) {} };
     };
     render();
   }

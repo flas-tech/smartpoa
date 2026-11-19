@@ -343,3 +343,33 @@ li.q-fu, .db-qs .q-fu { margin-left: 1rem; }
 .db-brief > summary { cursor: pointer; }
 .db-ref { background: #fff; border: 1px dashed var(--line); border-radius: var(--r); padding: .8rem .9rem; margin-bottom: .6rem; }
 @media (max-width: 640px) { .cr-grid { grid-template-columns: 1fr; } .apx-note { margin-left: 0; } }
+
+/* Compact plan of action print layout */
+.doc.compact { font-size: 9pt; line-height: 1.28; padding: .45in .5in; }
+.doc.compact h2 { font-size: 10pt; margin: .8em 0 .3em; }
+.doc.compact h3 { font-size: 9.5pt; margin: .6em 0 .2em; }
+.doc.compact table { font-size: 8.5pt; margin: .2em 0 .4em; }
+.doc.compact th, .doc.compact td { padding: .15em .35em; }
+.doc.compact p { margin: .25em 0; }
+.ct-task { border-top: 1px solid #bbb; padding: .3em 0 .35em; }
+.ct-head { font-size: 9pt; }
+.ct-head .mono { font-family: var(--mono); margin-right: .25em; }
+.ct-m { font-size: 7.5pt; color: #555; margin-left: .3em; }
+.ct-std { display: block; font-size: 7.5pt; color: #333; margin-left: 19px; }
+.ct-sc, .ct-apx, .ct-sk { font-size: 8.5pt; margin: .15em 0 0 19px; }
+.ct-apx { border-left: 2px solid #777; padding-left: .35em; }
+.ct-blank { display: inline-block; min-width: 45%; border-bottom: 1px solid #777; height: .9em; }
+.ct-q { display: grid; grid-template-columns: 2.6em 1fr; gap: .3em; font-size: 8.5pt; margin: .12em 0 0 19px; }
+.ct-q.fu { margin-left: 2.4em; }
+.ct-c { font-family: var(--mono); font-size: 7.5pt; color: #333; padding-top: .08em; }
+.ct-a { font-size: 8pt; color: #333; }
+.ct-a::before { content: "A: "; font-weight: 700; }
+.ct-sk span { margin-right: .5em; }
+.ct-apl { columns: 2; column-gap: 1.2em; font-size: 8pt; }
+.ct-apl > div { break-inside: avoid; margin-bottom: .15em; }
+.doc.compact .brief { columns: 2; column-gap: 1.4em; font-size: 8.5pt; }
+.os-tabs { display: flex; gap: .25rem; border-bottom: 1px solid var(--line); margin: 0 0 1rem; flex-wrap: wrap; }
+.os-tabs button { background: none; border: 0; border-bottom: 2px solid transparent; padding: .55rem .85rem; font: inherit; font-size: .88rem; color: var(--muted); cursor: pointer; margin-bottom: -1px; }
+.os-tabs button.on { color: var(--ink, #111); border-bottom-color: var(--accent); font-weight: 600; }
+.os-more { border-top: 1px solid var(--line); margin-top: .8rem; padding-top: .7rem; }
+.os-more summary { cursor: pointer; }

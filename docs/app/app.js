@@ -1046,6 +1046,9 @@
       };
       const canAI = editable && can('org_admin', 'examiner');
       if (editable && !content.qPicked && rows.length) { content.qPicked = true; applyAll(content.qMode || '1'); save(); }
+      // Older template questions had no expected answer: remove them; selected elements then get a bank question or an AI question and answer.
+      const isLegacyQ = (x) => x.source === 'generated' && !(x.expected || '').trim();
+      if (editable && qsList.some(isLegacyQ)) { const old = new Set(qsList.filter(isLegacyQ).map((x) => x.id)); drop((x) => old.has(x.id) || (x.parent && old.has(x.parent) && x.source !== 'manual')); rows.forEach((r) => pickBank(r, false)); content.qAiAuto = false; save(); }
       const gaps = gapsOf();
       const autoRun = canAI && gaps.length && !content.qAiAuto;
       const inRows = new Set(); qsList.forEach((x, i) => { if (x.ref && rowOf.has(x.ref) && (x.seq === 1 || x.seq === 2)) inRows.add(i); });

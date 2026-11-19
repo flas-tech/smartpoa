@@ -1,6 +1,24 @@
 {
-  "version": "0.2.8",
+  "version": "0.2.9",
   "releases": [
+    {
+      "version": "0.2.9",
+      "date": "2026-11-19",
+      "title": "Shorter printed plans, complete expected answers and simpler organization settings",
+      "roles": [
+        "org_admin",
+        "examiner"
+      ],
+      "items": [
+        "Printed plans default to a new Compact layout, about half the pages. Use the Layout menu on the print page to switch to Detailed.",
+        "Compact print shows each task's standard, scenario, appendix notes, questions with a short expected answer and reference, and skill elements on one line each.",
+        "Task scenarios are now drafted to test each skill element by performance or explanation. They do not repeat the master scenario, and tasks with many elements are broken into short steps.",
+        "AI questions and expected answers are now shorter.",
+        "Older template questions with no expected answer are replaced automatically when you open the Questions step of a draft or a new revision. Bank or AI questions with expected answers take their place.",
+        "Organization settings now have three tabs: Scenarios and AI, Pre-test checklists, and Briefing scripts. Each tab has one Save button, and briefing scripts open with the default text and can be reset.",
+        "Instrument checkrides now preselect the Instrument Rating when you build a plan."
+      ]
+    },
     {
       "version": "0.2.8",
       "date": "2026-11-18",
