@@ -910,13 +910,14 @@
         els = els.filter((x) => !(x.e.sub == null && all.some((y) => y.e.sub && y.e.type === x.e.type && y.e.num === x.e.num && els.includes(y))));
         els.sort((a, b) => (a.e.type === 'S' ? 0 : 1) - (b.e.type === 'S' ? 0 : 1));
         return { key: t.key, title: t.task.title_plain || t.task.title, method: ct.method || '', elements: els.slice(0, 20).map((x) => (x.e.type || 'O') + ' ' + x.c + ': ' + x.e.text) }; });
+      let factorsC = null; const factorsOf = async () => { if (factorsC) return factorsC; const x = await aiPayload().catch(() => ({})); factorsC = { weather: x.weather, pilot: x.pilot, aircraftFactors: x.aircraftFactors, environment: x.environment, pressures: x.pressures }; return factorsC; };
       // Draft scenarios for tasks in batches so every included task gets one (oral tasks included).
       const draftTasks = async (list, progress) => {
         sc.taskScenarios = Object.assign({}, sc.taskScenarios || {}); sc.taskSubs = Object.assign({}, sc.taskSubs || {}); let n = 0;
         let fails = 0, lastErr = null;
         for (let i = 0; i < list.length; i += 6) {
           if (!live()) break; const part = list.slice(i, i + 6); if (progress) progress(i, list.length);
-          let r = null; for (let a = 0; a < 2 && !r; a++) { try { r = await A2().ai('task_scenarios', { master: sc.mission, tasks: part }); } catch (er) { lastErr = er; } }
+          let r = null; for (let a = 0; a < 2 && !r; a++) { try { r = await A2().ai('task_scenarios', { master: sc.mission, tasks: part, factors: await factorsOf() }); } catch (er) { lastErr = er; } }
           if (!r) { fails++; continue; }
           sc.taskCodes = Object.assign({}, sc.taskCodes || {}); sc.taskSubCodes = Object.assign({}, sc.taskSubCodes || {});
           (r.items || []).forEach((x) => { if (part.some((t) => t.key === x.key)) { sc.taskScenarios[x.key] = x.text; sc.taskCodes[x.key] = x.codes || []; delete sc.taskSubs[x.key]; if (sc.taskSubCodes) delete sc.taskSubCodes[x.key]; n++; } });

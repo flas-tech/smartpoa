@@ -1,6 +1,19 @@
 {
-  "version": "0.2.9",
+  "version": "0.2.10",
   "releases": [
+    {
+      "version": "0.2.10",
+      "date": "2026-11-21",
+      "title": "Task scenarios use profile factors only where they fit",
+      "roles": [
+        "org_admin",
+        "examiner"
+      ],
+      "items": [
+        "When AI drafts task scenarios, scenario profile factors (weather, pilot, aircraft, environmental and external pressures) are used only in tasks directly about that factor. For example, weather appears in Weather Information and an external pressure in decision-making. Unrelated tasks leave them out, so scenarios stay short and specific.",
+        "Existing task scenarios are unchanged. Use Draft with AI on the Scenario step to redraft them."
+      ]
+    },
     {
       "version": "0.2.9",
       "date": "2026-11-19",
