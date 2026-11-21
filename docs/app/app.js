@@ -1028,7 +1028,7 @@
         const want = gapsOf(); let n = 0; const banked = [];
         for (let i = 0; i < want.length; i += 20) {
           if (!live()) break; const part = want.slice(i, i + 20); if (progress) progress(Math.min(i + 20, want.length), want.length);
-          let r = null; for (let a = 0; a < 2 && !r; a++) { try { r = await A2().ai('questions', { difficulty: sp.difficulty || '', elements: part.map((g) => ({ code: g.r.ref, task: g.r.t.key, type: g.r.aktr ? 'A' : g.r.e.type, text: g.r.e.text, references: g.r.t.task.references || '', mode: g.m, scenario: scenOf(g.r) ? scenOf(g.r).text : undefined, firstQuestion: g.first ? g.first.prompt : undefined, firstExpected: g.first ? g.first.expected : undefined })) }); } catch (er) { if (a) throw er; } }
+          let r = null; for (let a = 0; a < 2 && !r; a++) { try { r = await A2().ai('questions', { difficulty: sp.difficulty || '', elements: part.map((g) => ({ code: g.r.ref, task: g.r.t.key, type: g.r.aktr ? 'A' : g.r.e.type, text: g.r.e.text, references: g.r.t.task.references || '', mode: g.m, firstQuestion: g.first ? g.first.prompt : undefined, firstExpected: g.first ? g.first.expected : undefined })) }); } catch (er) { if (a) throw er; } }
           const out = (r && r.items) || [];
           part.forEach((g, k) => {
             const same = (o) => o && !o._u && String(o.code || '').trim().toUpperCase() === String(g.r.ref).toUpperCase();

@@ -1,6 +1,21 @@
 {
-  "version": "0.2.10",
+  "version": "0.2.11",
   "releases": [
+    {
+      "version": "0.2.11",
+      "date": "2026-11-21",
+      "title": "Standalone questions and draft pre-test checklists",
+      "roles": [
+        "org_admin",
+        "examiner"
+      ],
+      "items": [
+        "AI questions no longer use the master scenario or a shared trip. Each question stands on its own, and its wording follows the writing style in Organization settings (tone, detail, language, narrative style and risk emphasis).",
+        "Pre-test checklists: 14 grade and test-type combinations that had no checklist now have AI drafts, written from the current 14 CFR part 61 text. They are listed on the Pre-test checklists tab for review.",
+        "Drafts are not shown on plans until an administrator checks each one and presses Approve and save.",
+        "The test-type list on the checklists tab now shows only the tests that apply to the selected grade and marks each as AI draft or none."
+      ]
+    },
     {
       "version": "0.2.10",
       "date": "2026-11-21",

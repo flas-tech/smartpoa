@@ -25,10 +25,21 @@
   let ORGBR = {};
   function briefReqFor(cert, testType) {
     const ov = ORGBR[cert + '|' + testType];
-    if (ov && (ov.endorsements.length || ov.experience.length)) return Object.assign({ grade: cert, grade_label: GRADES[cert], test_type: testType, org: true }, ov);
+    if (ov && !ov.draft && (ov.endorsements.length || ov.experience.length)) return Object.assign({ grade: cert, grade_label: GRADES[cert], test_type: testType, org: true }, ov);
     if (!BREQ) return null;
     return BREQ.items.find((x) => x.grade === cert && x.test_type === testType && (x.endorsements.length || x.experience.length)) ||
       BREQ.items.find((x) => x.grade === cert && /^(Original Certificate|Instrument Rating)$/.test(x.test_type) && (x.endorsements.length || x.experience.length)) || null;
+  }
+  // Grade and test-type combinations that need a pre-test checklist.
+  const CK_TYPES = { private: ['Original Certificate', 'Retest for Original Certificate', 'Additional Rating', 'Retest For Additional Rating', 'Continued from Previously Discontinued Test'],
+    commercial: ['Original Certificate', 'Retest for Original Certificate', 'Additional Rating', 'Retest For Additional Rating', 'Continued from Previously Discontinued Test'],
+    instrument: ['Instrument Rating', 'Retest for Instrument Rating', 'Additional Rating', 'Retest For Additional Rating', 'Continued from Previously Discontinued Test'],
+    cfi: ['Original Certificate', 'Retest for Original Certificate', 'Additional Rating', 'Retest For Additional Rating', 'Reinstatement of CFI', 'Continued from Previously Discontinued Test'],
+    cfii: ['Additional Rating', 'Retest For Additional Rating', 'Continued from Previously Discontinued Test'],
+    atp: ['Original Certificate', 'Retest for Original Certificate', 'Additional Rating', 'Retest For Additional Rating', 'Type Rating', 'Continued from Previously Discontinued Test'] };
+  function ckStatus(g, t) {
+    const ov = ORGBR[g + '|' + t]; if (ov && (ov.endorsements.length || ov.experience.length)) return ov.draft ? 'draft' : 'org';
+    return BREQ && BREQ.items.some((x) => x.grade === g && x.test_type === t && (x.endorsements.length || x.experience.length)) ? 'imported' : 'none';
   }
   async function orgSettings() {
     try { const o = await q(sb.from('orgs').select('settings').eq('id', S.orgId).single()); return o.settings || {}; } catch (_) { return {}; }
@@ -260,11 +271,12 @@
           <div class="btn-row" style="justify-content:flex-end"><button class="btn">Save</button></div></form></div>`
         : tab === 'checklists' ? `<div class="card" id="breq"><h2>Pre-test checklists</h2><p class="xs muted" style="margin-top:0">Endorsements and aeronautical experience shown on the plan review and the printed plan.</p>
           <form id="rf"><div class="form-grid"><label>Grade<select name="g">${Object.entries(GRADES).map(([k, v]) => `<option value="${k}" ${k === rq.g ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
-          <label>Type of practical test<select name="t">${TEST_TYPES.map((t) => `<option ${t === rq.t ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label></div>
-          ${(() => { const cur = briefReqFor(rq.g, rq.t); const exact = cur && cur.test_type === rq.t; return `<p class="sm">${!cur ? '<span class="pill warn">None yet</span> No checklist exists for this test.' : exact ? (cur.org ? '<span class="pill ok">Organization list</span>' : '<span class="pill">Imported list</span> Saving makes an organization copy.') : '<span class="pill warn">None yet</span> This test uses the ' + esc(cur.test_type) + ' list.'}</p>
+          <label>Type of practical test<select name="t">${(CK_TYPES[rq.g] || TEST_TYPES).concat((CK_TYPES[rq.g] || []).includes(rq.t) ? [] : [rq.t]).map((t) => { const z = ckStatus(rq.g, t); return `<option value="${esc(t)}" ${t === rq.t ? 'selected' : ''}>${esc(t)}${z === 'draft' ? ' (AI draft)' : z === 'none' ? ' (none)' : ''}</option>`; }).join('')}</select></label></div>
+          ${(() => { const drafts = Object.keys(CK_TYPES).flatMap((g) => CK_TYPES[g].filter((t) => ckStatus(g, t) === 'draft').map((t) => [g, t])); return drafts.length ? `<div class="banner warn sm"><b>${drafts.length} AI draft${drafts.length > 1 ? 's' : ''} need review.</b> Drafts are not shown on plans until you check them against 14 CFR part 61 and AC 61-65 and press Approve and save.<div class="chips">${drafts.map(([g, t]) => `<button type="button" class="chip" style="font-family:inherit" data-ck="${esc(g + '|' + t)}">${esc(GRADES[g])}: ${esc(t)}</button>`).join('')}</div></div>` : ''; })()}
+          ${(() => { const dr = ORGBR[rq.g + '|' + rq.t]; const isDraft = dr && dr.draft; const cur = isDraft ? Object.assign({ test_type: rq.t }, dr) : briefReqFor(rq.g, rq.t); const exact = cur && cur.test_type === rq.t; return `<p class="sm">${isDraft ? '<span class="pill warn">AI draft</span> Needs review. Edit as needed, then press Approve and save.' : !cur ? '<span class="pill warn">None yet</span> No checklist exists for this test.' : exact ? (cur.org ? '<span class="pill ok">Organization list</span>' : '<span class="pill">Imported list</span> Saving makes an organization copy.') : '<span class="pill warn">None yet</span> This test uses the ' + esc(cur.test_type) + ' list.'}</p>
           <div class="form-grid"><label>Endorsements required<textarea name="e" style="min-height:180px" placeholder="One item per line. Start a line with - for a sub-item.">${esc(exact ? cur.endorsements.join('\n') : '')}</textarea></label><label>Aeronautical experience required<textarea name="x" style="min-height:180px" placeholder="One item per line. Start a line with - for a sub-item.">${esc(exact ? cur.experience.join('\n') : '')}</textarea></label></div>
           <p class="xs muted">To go back to the imported list, clear both boxes and save.</p>`; })()}
-          <div id="aiCk"></div><div class="btn-row" style="justify-content:flex-end"><button type="button" class="btn ghost" id="aiDraft">Draft with AI</button><button class="btn" id="ckSave">Save checklist</button></div></form></div>`
+          <div id="aiCk"></div><div class="btn-row" style="justify-content:flex-end"><button type="button" class="btn ghost" id="aiDraft">Draft with AI</button><button class="btn" id="ckSave">${(ORGBR[rq.g + '|' + rq.t] || {}).draft ? 'Approve and save' : 'Save checklist'}</button></div></form></div>`
         : (() => { const custom = !!(br[brk] || '').trim(); const B = BRIEFS.find((x) => x[0] === brk); return `<div class="card"><div class="card-head"><h2>Briefing scripts</h2><div class="seg" role="group" aria-label="Script">${BRIEFS.map(([k, l]) => `<button type="button" data-b="${k}" class="${k === brk ? 'on' : ''}">${l}${(br[k] || '').trim() ? ' (custom)' : ''}</button>`).join('')}</div></div>
           <p class="xs muted" style="margin-top:0">New plans of action start with these scripts. {std} is replaced by the standard number.</p>
           <form id="bf"><p class="sm">${custom ? '<span class="pill ok">Customized</span>' : '<span class="pill">smartPOA default</span> Edit and save to customize it.'}</p>
@@ -288,7 +300,8 @@
         const rs = qs('#bReset', c); if (rs) rs.onclick = async () => { if (!(await A.confirmBox('Reset to the default script?', 'New plans will use the smartPOA default. Existing plans keep their own text.', 'Reset'))) return; delete br[brk]; st.briefings = br; try { await saveSt(rs); render(); } catch (_) {} };
         return;
       }
-      const rf = qs('#rf', c); rf.g.onchange = rf.t.onchange = () => { rq.g = rf.g.value; rq.t = rf.t.value; render(); qs('#breq', c).scrollIntoView(); };
+      const rf = qs('#rf', c); rf.g.onchange = rf.t.onchange = () => { rq.g = rf.g.value; rq.t = rf.t.value; if (CK_TYPES[rq.g] && !CK_TYPES[rq.g].includes(rq.t)) rq.t = CK_TYPES[rq.g][0]; render(); qs('#breq', c).scrollIntoView(); };
+      qsa('[data-ck]', c).forEach((b) => b.onclick = () => { const [g, t] = b.dataset.ck.split('|'); rq.g = g; rq.t = t; render(); qs('#breq', c).scrollIntoView(); });
       qs('#aiDraft', c).onclick = async (e) => {
         if ((rf.e.value.trim() || rf.x.value.trim()) && !(await A.confirmBox('Replace the current text?', 'The endorsements and experience boxes will be replaced with an AI draft. Nothing is saved until you press Save checklist.', 'Replace'))) return;
         const cur = briefReqFor(rq.g, rq.t); const example = cur ? [].concat(cur.endorsements, cur.experience).slice(0, 40) : [];

@@ -124,20 +124,21 @@ One scenario per task; no sub-scenarios. Do not copy element text word for word.
       const els = (Array.isArray(body.payload?.elements) ? body.payload.elements : []).slice(0, 30).map((e: any) => {
         const mode = ["single", "pair", "follow"].includes(e.mode) ? e.mode : "single";
         const o: any = { code: clip(e.code, 24), type: clip(e.type, 2), description: clip(e.text, 400), references: clip(e.references, 300), task: clip(e.task, 12), mode };
-        if (e.scenario) o.scenario = clip(e.scenario, 700);
         if (mode === "follow") { o.firstQuestion = clip(e.firstQuestion, 600); o.firstExpected = clip(e.firstExpected, 900); }
         return o;
       });
       if (!els.length) return j({ items: [] }, 200, h);
       const sys = `You write oral-exam questions and expected answers for an FAA practical test, aligned with the Airman Certification Standards. Every question must test the specific element given (its code and description), not the task in general.
-Knowledge (K) elements: test understanding of that element. Risk management (R) elements: ask the applicant to identify, assess and mitigate that specific risk. AKTR (A) elements: the applicant missed this area on the knowledge test, so confirm the knowledge was corrected. When a "scenario" is given, set the question in that scenario.
+Knowledge (K) elements: test understanding of that element. Risk management (R) elements: ask the applicant to identify, assess and mitigate that specific risk. AKTR (A) elements: the applicant missed this area on the knowledge test, so confirm the knowledge was corrected.
+Each question stands on its own. Do not use or refer to a master scenario, a shared trip or test flight, "today's scenario" or "this flight". When a short situation helps, invent one that is specific to that element only.
 Each item has a "mode":
 - "single": write one question and its expected answer.
-- "pair": write the first question and a follow-up. The follow-up builds on the expected answer to the first, going one step deeper: apply it to the test flight, change one condition, or ask why or what if. It must still test the same element.
+- "pair": write the first question and a follow-up. The follow-up builds on the expected answer to the first, going one step deeper: apply it to a practical situation, change one condition, or ask why or what if. It must still test the same element.
 - "follow": the first question and its expected answer are given; write only the follow-up as described above, returned in "question" and "expectedAnswer".
 Keep questions to one sentence. Expected answers are 1-2 short sentences with the key facts only, then one specific reference (14 CFR section, AIM paragraph, handbook or AC). Vary phrasing.
 Difficulty: ${clip(body.payload?.difficulty, 400)}
-${DISCLAIM} ${styleLine(s)} Return only a JSON array with one object per input item, in order: {"code", "mode", "question", "expectedAnswer", "followUp", "followUpAnswer"} (followUp fields only for "pair").`;
+Writing style: follow the organization's writing style for wording. Tone sets the voice; detail level sets how much the expected answer covers (still within the limits above); language complexity sets the vocabulary; narrative style decides whether a question opens with a brief element-specific situation or is asked directly; risk emphasis sets how strongly questions probe hazards and mitigations. ${styleLine(s)}
+${DISCLAIM} Return only a JSON array with one object per input item, in order: {"code", "mode", "question", "expectedAnswer", "followUp", "followUpAnswer"} (followUp fields only for "pair").`;
       const r = await grok(key, sys, JSON.stringify(els), Math.min(9000, 420 * els.length + 600), temp(s, 0.3));
       const items = parseJsonArray(r.content).map((x: any) => ({ code: clip(x.code, 24), mode: clip(x.mode, 8), question: clip(x.question, 800), expected: clip(x.expectedAnswer ?? x.expected, 1500), followUp: clip(x.followUp, 800), followUpExpected: clip(x.followUpAnswer ?? x.followUpExpected, 1500) })).filter((x: any) => x.code && x.question);
       await log(true, r.usage);
