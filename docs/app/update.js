@@ -72,7 +72,7 @@
     let rel = (info.releases || []).filter((r) => cmp(r.version, CUR) <= 0);
     if (since === 'first') rel = rel.filter((r) => cmp(r.version, CUR) === 0);
     else if (since) rel = rel.filter((r) => cmp(r.version, since) > 0);
-    rel = rel.map((r) => ({ ...r, items: (r.items || []).filter(visible) })).filter((r) => r.items.length).slice(0, since ? 4 : 6);
+    rel = rel.map((r) => ({ ...r, items: (r.items || []).map((i) => (typeof i === 'string' ? { text: i, roles: r.roles || [] } : i)).filter((i) => i && i.text).filter(visible) })).filter((r) => r.items.length).slice(0, since ? 4 : 6);
     if (!rel.length) return;
     modal(`<h2>What's new in smartPOA</h2><p class="sm muted">Version ${esc(CUR)}</p>
       ${rel.map((r) => `<div class="wn-rel"><div class="wn-head"><span class="strong">${esc(r.title)}</span><span class="xs muted">v${esc(r.version)} · ${esc(fmt(r.date))}</span></div><ul>${r.items.map((i) => `<li>${esc(i.text)}</li>`).join('')}</ul></div>`).join('')}
