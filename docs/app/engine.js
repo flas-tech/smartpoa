@@ -164,6 +164,13 @@
     return group.map((l) => ({ l, u: score(l), r: rand() })).sort((a, b) => a.u - b.u || a.r - b.r)[0].l;
   }
 
+  // Task selection notes in the body or Appendix 3 of an ACS ("the evaluator must select ...").
+  const NOTE_RULES = {
+    acs7b: { V: { when: (p) => p.purpose !== 'added_rating' && ['ASEL', 'ASES'].includes(p.cls), groups: [['A', 'B'], ['C', 'D'], ['E']], note: 'FAA-S-ACS-7B Appendix 3 (initial commercial ASEL/ASES: Task A or B, Task C or D, and Task E)' } },
+    acs15: { V: { must: ['A', 'B', 'C', 'D', 'E'], plus: 1, note: 'FAA-S-ACS-15 Area V note (Tasks A-E and at least one other Task)' },
+      VI: { must: ['A'], plus: 1, note: 'FAA-S-ACS-15 Area VI note (Task A and at least one other Task)' } },
+    acs16: { VI: { must: ['A'], plus: 1, note: 'FAA-S-ACS-16 Area VI note (Task A and at least one other Task)' } },
+  };
   // Which tasks are required, with a reason for each.
   function requiredTasks(doc, profile, opts) {
     opts = opts || {};
@@ -177,7 +184,7 @@
     const mx = doc.cert === 'cfi' ? cfiMatrix(doc, profile) : null;
     const rs = ruleSet(doc, profile);
     const RK = { initial: 'initial instrument instructor rating', add: 'instrument instructor rating added to a flight instructor certificate', reinstatement: 'renewal or reinstatement' };
-    const usage = opts.usage || {}; const rand = opts.rand || Math.random; const pinned = (opts.pinned || profile.cfiPicks) ? new Set(opts.pinned || profile.cfiPicks) : null;
+    const usage = opts.usage || {}; const rand = opts.rand || Math.random; const pinSrc = (profile.cfiPicks && profile.cfiPicks.length ? profile.cfiPicks : null) || opts.pinned; const pinned = pinSrc ? new Set(pinSrc) : null;
     const KIND = { initial: 'initial certificate', add: 'added class rating', reinstatement: 'reinstatement' };
     for (const area of doc.areas) {
       let picks = null;
@@ -188,8 +195,24 @@
         picks = {};
         groups.forEach((g) => { const gg = mx.sea && area.roman === 'XIV' ? g.map((l) => (l === 'A' ? 'B' : l)) : g; const l = pickGroup(gg, area, usage, rand, pinned); picks[l] = gg.length > 1 ? 'Chosen from ' + gg.map((x) => area.roman + '.' + x).join(' / ') + ' (choose one; least recently tested)' : 'Required'; });
       }
+      // Choose-one groups: ACS selection notes, "C or D" entries in the Additional Rating Task Table, and wheel-gear tasks.
+      const grp = {};
+      const fitsC = (l) => { const tk = area.tasks.find((x) => x.letter === l); return tk && (!tk.classes || tk.classes.includes(cls)); };
+      const addGroup = (g, why) => { g = g.filter(fitsC); if (!g.length) return; const l = pickGroup(g, area, usage, rand, pinned);
+        g.forEach((x) => { grp[x] = x === l ? { req: true, why: g.length > 1 ? why + ': chosen from ' + g.map((y) => area.roman + '.' + y).join(' / ') + ' (the other may be used instead)' : why, alt: g.filter((y) => y !== x).map((y) => area.roman + '.' + y) } : { req: false, why: 'Alternative to ' + area.roman + '.' + l + ' under ' + why }; }); };
+      const nr = !picks && !addl && NOTE_RULES[doc.id] && NOTE_RULES[doc.id][area.roman];
+      const nrOn = nr && (!nr.when || nr.when(profile));
+      const wheel = {}; (area.notes || []).forEach((n) => { const m = /Task ([A-Z]) must be tested in addition .*wheel-type landing gear/i.exec(n); if (m) wheel[m[1]] = n; });
+      if (!picks && !addl) Object.keys(wheel).forEach((l) => { grp[l] = { req: false, why: 'Required in addition only if the applicant supplies a helicopter with wheel-type landing gear (' + doc.num + ' Area ' + area.roman + ' note)' }; });
+      if (nrOn) {
+        (nr.groups || []).forEach((g) => addGroup(g, nr.note));
+        (nr.must || []).filter(fitsC).forEach((l) => { grp[l] = { req: true, why: 'Required by ' + nr.note }; });
+        if (nr.plus) { const pool = area.tasks.map((x) => x.letter).filter((l) => fitsC(l) && !grp[l] && !wheel[l]); if (pool.length) addGroup(pool, nr.note); }
+      }
+      const ac = addl && addl[area.roman];
+      if (ac && ac.tasks) ac.tasks.filter((t) => /^[A-Z](or[A-Z])+$/.test(t)).forEach((t) => addGroup(t.split('or'), 'the Additional Rating Task Table (held: ' + profile.held + ')'));
       for (const task of area.tasks) {
-        let req = true; let reason = 'Required for the certificate/rating sought';
+        let req = true; let reason = 'Required for the certificate/rating sought'; let alt = null;
         if (picks && rs) {
           if (picks[task.letter]) reason = picks[task.letter] + ' for an ' + RK[rs.kind] + ' (' + doc.num + ')';
           else { req = false; const ru = rs.table[area.roman]; reason = (ru && !ru.none ? 'Not selected' : 'Area not required') + ' for an ' + RK[rs.kind] + ' (' + doc.num + ')'; }
@@ -206,12 +229,13 @@
           else if (c.star) reason = 'Additional Rating Task Table: follow the selection requirements in the body of the standard';
           else reason = 'Required by the Additional Rating Task Table (held: ' + profile.held + ')';
         }
+        if (grp[task.letter] && !(task.classes && isAirplane && !task.classes.includes(cls))) { const g = grp[task.letter]; req = g.req; reason = g.why; alt = g.alt && g.alt.length ? g.alt : null; }
         if (req && (profile.purpose === 'retest' || profile.purpose === 'continuation') && profile.retestTasks && profile.retestTasks.length) {
           const cont = profile.purpose === 'continuation';
           if (!profile.retestTasks.includes(taskKey(area, task))) { req = false; reason = cont ? 'Completed satisfactorily before the discontinuance (credit per the Letter of Discontinuance)' : 'Passed on the previous attempt (examiner may re-evaluate any task)'; }
           else reason = cont ? 'Not yet completed when the test was discontinued' : 'Failed or not completed on the previous attempt';
         }
-        out.push({ key: taskKey(area, task), area, task, required: req, reason });
+        out.push({ key: taskKey(area, task), area, task, required: req, reason, alt });
       }
     }
     return out;
@@ -417,7 +441,7 @@
     const { doc, profile, content } = ctx;
     const included = new Set(Object.keys(content.tasks || {}).filter((k) => content.tasks[k].included));
     const req = ctx.tasks.filter((t) => t.required);
-    const missing = req.filter((t) => !included.has(t.key));
+    const missing = req.filter((t) => !included.has(t.key) && !(t.alt && t.alt.some((k) => included.has(k))));
     const isACS = doc.kind === 'ACS';
     const rows = [];
     const push = (id, quoteKey, cite, url, status, evidence) => rows.push({ id, quoteKey, cite, url, status, evidence });

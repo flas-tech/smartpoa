@@ -1,6 +1,21 @@
 {
-  "version": "0.2.11",
+  "version": "0.2.12",
   "releases": [
+    {
+      "version": "0.2.12",
+      "date": "2026-11-21",
+      "title": "Task selection rules from the ACS",
+      "roles": [
+        "org_admin",
+        "examiner"
+      ],
+      "items": [
+        "Commercial ASEL/ASES initial tests follow FAA-S-ACS-7B Appendix 3 in Area V: Task A or B, Task C or D, and Task E. The compliance check accepts either task in each pair.",
+        "Additional rating tests read 'C or D' and 'A or B' entries in the Additional Rating Task Table as one required pick.",
+        "Helicopter ACS notes now apply: 'Task A and at least one other Task' and 'Tasks A-E and at least one other Task'. Wheel-type landing gear tasks are marked as required only when the helicopter has wheels.",
+        "Existing plans keep the tasks they already include. The required markers and compliance results update without a rebuild."
+      ]
+    },
     {
       "version": "0.2.11",
       "date": "2026-11-21",

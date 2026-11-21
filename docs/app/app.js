@@ -673,7 +673,7 @@
       q(sb.from('documents').select('*').eq('poa_id', p.id).order('uploaded_at', { ascending: false })),
     ]);
     const editable = p.status === 'draft' && (can('org_admin') || (can('examiner') && p.examiner_id === S.ctx.user_id));
-    const tasks = E.requiredTasks(doc, p.test_profile);
+    const tasks = E.requiredTasks(doc, p.test_profile, { pinned: Object.keys((p.content && p.content.tasks) || {}).filter((k) => p.content.tasks[k].included) });
     const content = p.content;
     let step = params.get('step') || (editable ? 'tasks' : 'review');
     let saveT = null; let saving = Promise.resolve();

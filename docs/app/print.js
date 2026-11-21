@@ -18,7 +18,7 @@
       q(sb.from('poas').select('id,title,content').eq('org_id', p.org_id).eq('examiner_id', p.examiner_id).neq('id', p.id).neq('status', 'void').order('created_at', { ascending: false }).limit(25)),
     ]);
     const ex = (mem || []).find((m) => m.user_id === p.examiner_id) || {};
-    const tasks = E.requiredTasks(doc, p.test_profile);
+    const tasks = E.requiredTasks(doc, p.test_profile, { pinned: Object.keys((p.content && p.content.tasks) || {}).filter((k) => p.content.tasks[k].included) });
     const docStatus = ((S.docsDb || []).find((d) => d.id === doc.id) || {}).status || 'current';
     const comp = E.complianceChecks({ doc, profile: p.test_profile, tasks, content: p.content, priorPoas: prior, aktr: p.content.aktr || [], docStatus, lastCheck: S.lastCheck });
     return { p, doc, app, ac, ex, debrief: dbs[0], tasks, comp, org: A.org() };

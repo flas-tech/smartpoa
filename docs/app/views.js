@@ -33,7 +33,7 @@
     }
     const pending = queue()[d.id]; if (pending) Object.assign(d, pending);
     const locked = d.status === 'signed' || !can('org_admin', 'examiner');
-    const tasks = E.requiredTasks(doc, p.test_profile).filter((t) => p.content.tasks[t.key] && p.content.tasks[t.key].included);
+    const tasks = E.requiredTasks(doc, p.test_profile, { pinned: Object.keys((p.content && p.content.tasks) || {}).filter((k) => p.content.tasks[k].included) }).filter((t) => p.content.tasks[t.key] && p.content.tasks[t.key].included);
     d.results = d.results || {};
     if (locked) { const fix = (st, en, m) => en || (st ? new Date(new Date(st).getTime() + (m || 0) * 60000).toISOString() : null);
       d.ground_end = fix(d.ground_start, d.ground_end, d.oral_minutes); d.flight_end = fix(d.flight_start, d.flight_end, d.flight_minutes != null ? d.flight_minutes : Math.round((d.flight_hours || 0) * 60)); }
